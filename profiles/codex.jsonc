@@ -1,0 +1,718 @@
+{
+  "schema_version": "2.0",
+  "name": "codex",
+  "title": "Codex CLI",
+  "vendor": "OpenAI",
+  "applies_to": {
+    "os": [
+      "windows",
+      "darwin",
+      "linux"
+    ]
+  },
+  "roots": {
+    "codex": {
+      "windows": "${CODEX_HOME:-%USERPROFILE%\\.codex}",
+      "darwin": "${CODEX_HOME:-$HOME/.codex}",
+      "linux": "${CODEX_HOME:-$HOME/.codex}"
+    },
+    "repo": "${REPO_ROOT}"
+  },
+  "defaults": {
+    "expand": "per-file"
+  },
+  "max_bytes_total": 274877906944,
+  "entries": [
+    {
+      "id": "config",
+      "kind": "file",
+      "root": "codex",
+      "path": "config.toml",
+      "layer": "L2",
+      "secret": "scan",
+      "extractor": "template",
+      "redact": {
+        "key_pattern": [
+          "(?i).*(key|token|secret|password).*"
+        ]
+      },
+      "signals": [
+        {
+          "src": "official_docs",
+          "note": "主配置，model_providers 可以 env_key 引用密钥，也可内联，故必须扫描",
+          "url": "https://github.com/openai/codex/blob/main/docs/config.md"
+        }
+      ],
+      "parts_uncovered": "keep",
+      "parts": [
+        {
+          "id": "project-index",
+          "selector": {
+            "toml_section": "projects.*"
+          },
+          "layer": "L4",
+          "secret": "none",
+          "extractor": "keys-only",
+          "path_semantics": "machine_derived",
+          "derived_from": "json_path_key",
+          "notes": "[projects.'d:/…'] 段；段键为本机绝对路径，逐段产出 origin"
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "kind": "file",
+      "root": "codex",
+      "path": "auth.json",
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "template",
+      "redact": {
+        "key_pattern": [
+          "(?i).*(key|token|secret).*"
+        ]
+      },
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "存 OPENAI_API_KEY 或 ChatGPT OAuth 凭据；API key 可迁，OAuth refresh token 常需重登，故用 scan 分类"  // TODO verify 字段名
+        }
+      ]
+    },
+    {
+      "id": "dotenv",
+      "kind": "file",
+      "root": "codex",
+      "path": ".env",
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "template",
+      "redact": {
+        "key_pattern": [
+          "(?i).*(key|token|secret|password).*"
+        ]
+      },
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "dotenv 形式，按行首键名脱敏；本机 204 B"
+        }
+      ]
+    },
+    {
+      "id": "sandbox-secrets",
+      "kind": "file",
+      "root": "codex",
+      "path": ".sandbox-secrets/sandbox_users.json",
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "template",
+      "redact": {
+        "key_pattern": [
+          "(?i).*(key|token|secret|password).*"
+        ]
+      },
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "沙箱用户口令表"
+        }
+      ]
+    },
+    {
+      "id": "sessions",
+      "kind": "glob-group",
+      "root": "codex",
+      "paths": [
+        "sessions/**/rollout-*.jsonl"
+      ],
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "digest",
+      "max_bytes_inline": 65536,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "按日期分目录存档的会话 rollout，明文 JSONL，体积最大"  // TODO verify 文件名前缀
+        }
+      ]
+    },
+    {
+      "id": "archived-sessions",
+      "kind": "dir",
+      "root": "codex",
+      "path": "archived_sessions",
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "digest",
+      "max_bytes_inline": 0,
+      "opaque_content": true,
+      "expand": "aggregate",
+      "max_bytes_total": 4294967296,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "归档会话，16 MB，无上游"
+        }
+      ]
+    },
+    {
+      "id": "history",
+      "kind": "file",
+      "root": "codex",
+      "path": "history.jsonl",
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "template",
+      "redact": {
+        "key_pattern": [
+          "(?i).*(token|secret|password|api[_-]?key).*"
+        ]
+      },
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "输入历史，明文"
+        }
+      ]
+    },
+    {
+      "id": "prompts",
+      "kind": "dir",
+      "root": "codex",
+      "path": "prompts",
+      "layer": "L3",
+      "secret": "none",
+      "extractor": "raw-ref",
+      "signals": [
+        {
+          "src": "official_docs",
+          "note": "自定义 prompt 模板，手写且无上游",
+          "url": "https://github.com/openai/codex/blob/main/docs/prompts.md"
+        }
+      ]
+    },
+    {
+      "id": "rules",
+      "kind": "dir",
+      "root": "codex",
+      "path": "rules",
+      "layer": "L3",
+      "secret": "none",
+      "extractor": "raw-ref",
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "命令执行规则文件；本机存在"  // TODO verify 是否随版本存在
+        }
+      ]
+    },
+    {
+      "id": "agents-md",
+      "kind": "file",
+      "root": "codex",
+      "path": "AGENTS.md",
+      "layer": "L2",
+      "secret": "none",
+      "extractor": "raw-ref",
+      "unique_within": "root",
+      "signals": [
+        {
+          "src": "official_docs",
+          "note": "全局 agent 规则文件",
+          "url": "https://github.com/openai/codex/blob/main/docs/config.md"
+        }
+      ]
+    },
+    {
+      "id": "log",
+      "kind": "dir",
+      "root": "codex",
+      "path": "log",  // 本机不存在
+      "layer": "L0",
+      "secret": "none",
+      "extractor": "none",
+      "expand": "aggregate",
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "codex-tui.log 运行日志；本机无 log/，散落的 *.log 由残留条目收"
+        }
+      ]
+    },
+    {
+      "id": "tmp",
+      "kind": "dir",
+      "root": "codex",
+      "path": "tmp",
+      "layer": "L0",
+      "secret": "none",
+      "extractor": "none",
+      "expand": "aggregate",
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "临时工作区"  // TODO verify
+        }
+      ]
+    },
+    {
+      "id": "models-cache",
+      "kind": "file",
+      "root": "codex",
+      "path": "models_cache.json",
+      "layer": "L0",
+      "secret": "none",
+      "extractor": "none",
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "模型元数据缓存，联网重新拉取"
+        }
+      ]
+    },
+    {
+      "id": "version",
+      "kind": "file",
+      "root": "codex",
+      "path": "version.json",
+      "layer": "L0",
+      "secret": "none",
+      "extractor": "none",
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "版本检查缓存"
+        }
+      ]
+    },
+    {
+      "id": "sqlite-state",
+      "kind": "file",
+      "root": "codex",
+      "path": "state_5.sqlite",
+      "companions": [
+        "-wal",
+        "-shm"
+      ],
+      "open_as": "sqlite-ro",
+      "side_effects": [
+        "shm_created"
+      ],
+      "opaque_content": true,
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "digest",
+      "max_bytes_inline": 0,
+      "max_bytes_total": 1073741824,
+      "priority": 20,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "会话状态库；只读打开仍可能生成 -shm"
+        }
+      ]
+    },
+    {
+      "id": "sqlite-logs",
+      "kind": "file",
+      "root": "codex",
+      "path": "logs_2.sqlite",
+      "companions": [
+        "-wal",
+        "-shm"
+      ],
+      "open_as": "sqlite-ro",
+      "side_effects": [
+        "shm_created"
+      ],
+      "opaque_content": true,
+      "layer": "L2",
+      "secret": "scan",
+      "extractor": "digest",
+      "max_bytes_inline": 0,
+      "max_bytes_total": 1073741824,
+      "priority": 20,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "运行日志库，95 MB；WAL 可能为 0 字节"
+        }
+      ]
+    },
+    {
+      "id": "sqlite-thread-history",
+      "kind": "file",
+      "root": "codex",
+      "path": "thread_history_1.sqlite",
+      "companions": [
+        "-wal",
+        "-shm"
+      ],
+      "open_as": "sqlite-ro",
+      "side_effects": [
+        "shm_created"
+      ],
+      "opaque_content": true,
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "digest",
+      "max_bytes_inline": 0,
+      "max_bytes_total": 4294967296,
+      "priority": 20,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "线程历史库，360 MB，本机 codex 最大单文件"
+        }
+      ]
+    },
+    {
+      "id": "sqlite-other",
+      "kind": "glob-group",
+      "root": "codex",
+      "paths": [
+        "*.sqlite",
+        "sqlite/*.sqlite",
+        "sqlite/*.db"
+      ],
+      "companions": [
+        "-wal",
+        "-shm"
+      ],
+      "open_as": "sqlite-ro",
+      "side_effects": [
+        "shm_created"
+      ],
+      "opaque_content": true,
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "digest",
+      "max_bytes_inline": 0,
+      "max_bytes_total": 1073741824,
+      "priority": 5,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "goals/queue/memories 等其余库与 sqlite/ 下的 *.sqlite/*.db（本机 codex-dev.db 36,864 B）"
+        }
+      ]
+    },
+    {
+      "id": "packages",
+      "kind": "dir",
+      "root": "codex",
+      "path": "packages",
+      "layer": "L1",
+      "secret": "none",
+      "extractor": "none",
+      "expand": "aggregate",
+      "max_bytes_total": 4294967296,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "app-server-daemon 等可重装包，1.1 GB，含 junction"
+        }
+      ]
+    },
+    {
+      "id": "global-state",
+      "kind": "file",
+      "root": "codex",
+      "path": ".codex-global-state.json",
+      "layer": "L4",
+      "secret": "none",
+      "extractor": "keys-only",
+      "churn": "high",
+      "max_bytes_inline": 0,
+      "max_bytes_structure": 1048576,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "全局状态，含机器绑定键；高频重写"
+        }
+      ]
+    },
+    {
+      "id": "installation-id",
+      "kind": "file",
+      "root": "codex",
+      "path": "installation_id",
+      "layer": "L4",
+      "secret": "none",
+      "extractor": "digest",
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "安装标识，换机需重建"
+        }
+      ]
+    },
+    {
+      "id": "repo-agents-md",
+      "kind": "file",
+      "root": "repo",
+      "path": "AGENTS.md",
+      "layer": "L2",
+      "secret": "none",
+      "extractor": "raw-ref",
+      "unique_within": "root",
+      "signals": [
+        {
+          "src": "official_docs",
+          "note": "仓库级 agent 规则，通常应进版本库",
+          "url": "https://github.com/openai/codex/blob/main/docs/config.md"
+        }
+      ]
+    },
+    {
+      "id": "codex-residual",
+      "kind": "catch-all",
+      "root": "codex",
+      "layer": "L2",
+      "secret": "scan",
+      "extractor": "keys-only",
+      "max_bytes_inline": 65536,
+      "max_depth": 3,
+      "signals": []
+    }
+  ],
+  "selftest": {
+    "clock": "2026-01-01T00:00:00Z",
+    "fixtures": {
+      "codex": "fixtures/codex/home",
+      "repo": "fixtures/codex/repo"
+    },
+    "files": [
+      {
+        "path": "codex/state_5.sqlite",
+        "size": 4096
+      },
+      {
+        "path": "codex/state_5.sqlite-wal",
+        "size": 128
+      },
+      {
+        "path": "codex/logs_2.sqlite",
+        "size": 4096
+      },
+      {
+        "path": "codex/logs_2.sqlite-wal",
+        "size": 0
+      },
+      {
+        "path": "codex/thread_history_1.sqlite",
+        "size": 8192
+      },
+      {
+        "path": "codex/sqlite/goals_1.sqlite",
+        "size": 4096
+      },
+      {
+        "path": "codex/sqlite/codex-dev.db",
+        "size": 4096
+      },
+      {
+        "path": "codex/sqlite/queue_1.sqlite",
+        "size": 4096
+      },
+      {
+        "path": "codex/sqlite/queue_1.sqlite-shm",
+        "size": 32768
+      }
+    ],
+    "dirs": [],
+    "symlinks": [],
+    "expect": [
+      {
+        "entry": "config",
+        "root": "codex",
+        "match": "config.toml",
+        "layer": "L2",
+        "secret": "scan"
+      },
+      {
+        "entry": "config",
+        "part": "project-index",
+        "root": "codex",
+        "match": "config.toml",
+        "layer": "L4",
+        "secret": "none"
+      },
+      {
+        "entry": "auth",
+        "root": "codex",
+        "match": "auth.json",
+        "layer": "L3",
+        "secret": "scan"
+      },
+      {
+        "entry": "dotenv",
+        "root": "codex",
+        "match": ".env",
+        "layer": "L3",
+        "secret": "scan"
+      },
+      {
+        "entry": "sandbox-secrets",
+        "root": "codex",
+        "match": ".sandbox-secrets/sandbox_users.json",
+        "layer": "L3",
+        "secret": "scan"
+      },
+      {
+        "entry": "sessions",
+        "root": "codex",
+        "match": "sessions/**/rollout-*.jsonl",
+        "layer": "L3"
+      },
+      {
+        "entry": "archived-sessions",
+        "root": "codex",
+        "match": "archived_sessions/**",
+        "layer": "L3"
+      },
+      {
+        "entry": "history",
+        "root": "codex",
+        "match": "history.jsonl",
+        "layer": "L3"
+      },
+      {
+        "entry": "prompts",
+        "root": "codex",
+        "match": "prompts/**",
+        "layer": "L3"
+      },
+      {
+        "entry": "rules",
+        "root": "codex",
+        "match": "rules/**",
+        "layer": "L3"
+      },
+      {
+        "entry": "agents-md",
+        "root": "codex",
+        "match": "AGENTS.md",
+        "layer": "L3"
+      },
+      {
+        "entry": "log",
+        "root": "codex",
+        "match": "log/**",
+        "layer": "L0",
+        "action": "delete"
+      },
+      {
+        "entry": "tmp",
+        "root": "codex",
+        "match": "tmp/**",
+        "layer": "L0",
+        "action": "delete"
+      },
+      {
+        "entry": "models-cache",
+        "root": "codex",
+        "match": "models_cache.json",
+        "layer": "L0",
+        "action": "delete"
+      },
+      {
+        "entry": "version",
+        "root": "codex",
+        "match": "version.json",
+        "layer": "L0",
+        "action": "delete"
+      },
+      {
+        "entry": "sqlite-state",
+        "root": "codex",
+        "match": "state_5.sqlite",
+        "layer": "L3",
+        "risk_flags": [
+          "opaque_content"
+        ]
+      },
+      {
+        "entry": "sqlite-logs",
+        "root": "codex",
+        "match": "logs_2.sqlite",
+        "layer": "L2",
+        "risk_flags": [
+          "opaque_content"
+        ]
+      },
+      {
+        "entry": "sqlite-thread-history",
+        "root": "codex",
+        "match": "thread_history_1.sqlite",
+        "layer": "L3",
+        "risk_flags": [
+          "opaque_content"
+        ]
+      },
+      {
+        "entry": "sqlite-other",
+        "root": "codex",
+        "match": "sqlite/goals_1.sqlite",
+        "layer": "L3",
+        "risk_flags": [
+          "opaque_content"
+        ]
+      },
+      {
+        "entry": "sqlite-other",
+        "root": "codex",
+        "match": "sqlite/codex-dev.db",
+        "layer": "L3",
+        "risk_flags": [
+          "opaque_content"
+        ]
+      },
+      {
+        "entry": "sqlite-other",
+        "root": "codex",
+        "match": "sqlite/queue_1.sqlite",
+        "layer": "L3"
+      },
+      {
+        "entry": "packages",
+        "root": "codex",
+        "match": "packages/**",
+        "layer": "L1",
+        "action": "reinstall"
+      },
+      {
+        "entry": "global-state",
+        "root": "codex",
+        "match": ".codex-global-state.json",
+        "layer": "L4"
+      },
+      {
+        "entry": "installation-id",
+        "root": "codex",
+        "match": "installation_id",
+        "layer": "L4"
+      },
+      {
+        "entry": "repo-agents-md",
+        "root": "repo",
+        "match": "AGENTS.md",
+        "layer": "L3"
+      },
+      {
+        "entry": "codex-residual",
+        "root": "codex",
+        "match": "loose.log",
+        "layer": "L2",
+        "action": "keep",
+        "confidence": 0.5
+      }
+    ],
+    "expect_absent": [],
+    "budget": {
+      "wall_ms": 5000,
+      "max_rss_mib": 256
+    }
+  }
+}

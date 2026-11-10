@@ -1,0 +1,1 @@
+Fixture residual file in the repo root; caught by repo-residual.

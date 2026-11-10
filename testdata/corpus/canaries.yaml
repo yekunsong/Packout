@@ -1,0 +1,10 @@
+# Canary constants for the corpus (SPEC §12). The sha256 of this file is
+# written into corpus.yaml; original acceptance scripts must read values here.
+version: 1
+tokens:
+  - id: c02-mcp-token
+    value: "sk-ant-api03-C0RPUSCANARY0123456789abcdefXY"
+    shape: known_prefix sk-ant-
+    used_by: [C02-mcp-fake-token]
+notes:
+  - "Fake on purpose: the literal string C0RPUSCANARY appears only here, in the generator and in acceptance scripts."

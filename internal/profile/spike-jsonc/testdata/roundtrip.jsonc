@@ -1,0 +1,23 @@
+// top comment about the profile
+{
+  "$schema": "https://example.com/profile.schema.json", // trailing comment
+  "name": "quoted name",
+  "version": "1.2.3",
+  "description": "line one\nline two",
+  /* block comment
+     spanning two lines */
+  "tags": ["a", "b", "c"],
+
+  "future_field": {
+    "nested": true,
+    "unknown_array": [1, 2, 3]
+  },
+
+  // foot comment for deps
+  "deps": [
+    {
+      "name": "foo",
+      "constraint": ">=1.0"
+    }
+  ]
+}

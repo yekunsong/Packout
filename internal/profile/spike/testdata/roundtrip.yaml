@@ -1,0 +1,20 @@
+# top comment about the profile
+---
+name: "quoted name"   # trailing comment
+version: 1.2.3
+description: |
+  block literal line one
+  block literal line two
+notes: >-
+  folded line one
+  folded line two
+tags: [a, 'b', "c"]
+
+base: &base
+  retries: 3
+deps:
+  - name: foo
+    <<: *base
+    constraint: ">=1.0"
+
+# foot comment for deps

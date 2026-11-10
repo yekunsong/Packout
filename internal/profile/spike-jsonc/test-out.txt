@@ -1,0 +1,119 @@
+=== RUN   TestCloneTrailingComma
+    extra_test.go:22: src="[1, 2,]" clone.Pack="[1, 2]" identical=false
+    extra_test.go:24: Clone lost trailing comma: "[1, 2,]" -> "[1, 2]"
+    extra_test.go:22: src="{\"a\": 1,}" clone.Pack="{\"a\": 1}" identical=false
+    extra_test.go:24: Clone lost trailing comma: "{\"a\": 1,}" -> "{\"a\": 1}"
+    extra_test.go:22: src="{\"a\": [1,],}" clone.Pack="{\"a\": [1]}" identical=false
+    extra_test.go:24: Clone lost trailing comma: "{\"a\": [1,],}" -> "{\"a\": [1]}"
+    extra_test.go:34: Clone lost non-empty AfterExtra: "{\"a\": 1, }" -> "{\"a\": 1 }"
+--- FAIL: TestCloneTrailingComma (0.00s)
+=== RUN   TestStandardizeMutatesInput
+    extra_test.go:53: input slice MUTATED in place: "{\n  // comment\n  \"a\": 1,\n}\n" -> "{\n            \n  \"a\": 1,\n}\n" (returned std="{\n            \n  \"a\": 1 \n}\n")
+--- PASS: TestStandardizeMutatesInput (0.00s)
+=== RUN   TestUnknownFieldsPreserved
+    main_test.go:54: unknown fields ('future_field', its nested subtree) live in the AST; struct decode has no slot for them
+--- PASS: TestUnknownFieldsPreserved (0.01s)
+=== RUN   TestValuePositions
+    main_test.go:101: checked 5 values incl. member names; All()/Range() yielded 5 (member names included)
+--- PASS: TestValuePositions (0.00s)
+=== RUN   TestLosslessRoundTrip
+=== RUN   TestLosslessRoundTrip/full_sample
+    main_test.go:142: byte-identical (454 bytes)
+=== RUN   TestLosslessRoundTrip/trailing_line_comment_spacing
+    main_test.go:142: byte-identical (34 bytes)
+=== RUN   TestLosslessRoundTrip/block_comment_between_members
+    main_test.go:142: byte-identical (29 bytes)
+=== RUN   TestLosslessRoundTrip/blank_line_between_keys
+    main_test.go:142: byte-identical (24 bytes)
+=== RUN   TestLosslessRoundTrip/line_comment_between_keys
+    main_test.go:142: byte-identical (36 bytes)
+=== RUN   TestLosslessRoundTrip/comment_detached_by_blank_line
+    main_test.go:142: byte-identical (43 bytes)
+=== RUN   TestLosslessRoundTrip/key_order_preserved
+    main_test.go:142: byte-identical (33 bytes)
+=== RUN   TestLosslessRoundTrip/tab_indentation
+    main_test.go:142: byte-identical (38 bytes)
+=== RUN   TestLosslessRoundTrip/four-space_indentation_and_alignment
+    main_test.go:142: byte-identical (33 bytes)
+=== RUN   TestLosslessRoundTrip/crlf_line_endings
+    main_test.go:142: byte-identical (27 bytes)
+=== RUN   TestLosslessRoundTrip/no_trailing_newline
+    main_test.go:142: byte-identical (8 bytes)
+=== RUN   TestLosslessRoundTrip/unicode_escapes
+    main_test.go:142: byte-identical (47 bytes)
+=== RUN   TestLosslessRoundTrip/duplicate_keys
+    main_test.go:142: byte-identical (42 bytes)
+=== RUN   TestLosslessRoundTrip/trailing_comma_in_object_and_array
+    main_test.go:142: byte-identical (32 bytes)
+=== RUN   TestLosslessRoundTrip/array_item_comments
+    main_test.go:142: byte-identical (45 bytes)
+=== RUN   TestLosslessRoundTrip/comment_at_end_of_file
+    main_test.go:142: byte-identical (24 bytes)
+--- PASS: TestLosslessRoundTrip (0.01s)
+    --- PASS: TestLosslessRoundTrip/full_sample (0.00s)
+    --- PASS: TestLosslessRoundTrip/trailing_line_comment_spacing (0.00s)
+    --- PASS: TestLosslessRoundTrip/block_comment_between_members (0.00s)
+    --- PASS: TestLosslessRoundTrip/blank_line_between_keys (0.00s)
+    --- PASS: TestLosslessRoundTrip/line_comment_between_keys (0.00s)
+    --- PASS: TestLosslessRoundTrip/comment_detached_by_blank_line (0.00s)
+    --- PASS: TestLosslessRoundTrip/key_order_preserved (0.00s)
+    --- PASS: TestLosslessRoundTrip/tab_indentation (0.00s)
+    --- PASS: TestLosslessRoundTrip/four-space_indentation_and_alignment (0.00s)
+    --- PASS: TestLosslessRoundTrip/crlf_line_endings (0.00s)
+    --- PASS: TestLosslessRoundTrip/no_trailing_newline (0.00s)
+    --- PASS: TestLosslessRoundTrip/unicode_escapes (0.00s)
+    --- PASS: TestLosslessRoundTrip/duplicate_keys (0.00s)
+    --- PASS: TestLosslessRoundTrip/trailing_comma_in_object_and_array (0.00s)
+    --- PASS: TestLosslessRoundTrip/array_item_comments (0.00s)
+    --- PASS: TestLosslessRoundTrip/comment_at_end_of_file (0.00s)
+=== RUN   TestRoundTripPaths
+    main_test.go:173: note: Parse+Clone+Standardize+Pack != hujson.Standardize bytes (orig 34, std 34, clone 32)
+    main_test.go:177: src                = "{\r\n  // note\r\n  \"a\": [1, 2,],\r\n}\r\n"
+    main_test.go:178: Parse+Pack         = "{\r\n  // note\r\n  \"a\": [1, 2,],\r\n}\r\n"  identical=true
+    main_test.go:179: Format(src)        = "{\n\t// note\n\t\"a\": [1, 2],\n}\n"  identical=false
+    main_test.go:180: Standardize(src)   = "{\r\n         \r\n  \"a\": [1, 2 ] \r\n}\r\n"  identical=false
+    main_test.go:181: Clone+Standardize  = "{\r\n         \r\n  \"a\": [1, 2]\r\n}\r\n"  identical=false
+    main_test.go:203: after in-place Standardize: "{\r\n         \r\n  \"a\": [1, 2 ] \r\n}\r\n"
+--- PASS: TestRoundTripPaths (0.00s)
+=== RUN   TestEditPreservesTrivia
+    main_test.go:224: edited only the value; comments/CRLF/trailing comma intact: "{\r\n  // keep me\r\n  \"name\": \"new\",\r\n  \"unknown\": [1, 2,],\r\n}\r\n"
+    main_test.go:239: UpdateOffsets after length-changing edit matches a fresh Parse
+--- PASS: TestEditPreservesTrivia (0.00s)
+=== RUN   TestDuplicateKeys
+    main_test.go:274: hujson: no error, both members kept, Find returns first; json.Unmarshal(map): name="second" (last wins)
+--- PASS: TestDuplicateKeys (0.00s)
+=== RUN   TestNonStandardJSON
+=== RUN   TestNonStandardJSON/single-quoted_key
+    main_test.go:305: rejected with location: hujson: line 1, column 2: invalid character '\'' at start of value
+=== RUN   TestNonStandardJSON/single-quoted_value
+    main_test.go:305: rejected with location: hujson: line 1, column 7: invalid character '\'' at start of value
+=== RUN   TestNonStandardJSON/unquoted_key
+    main_test.go:305: rejected with location: hujson: line 1, column 2: invalid literal: a
+=== RUN   TestNonStandardJSON/bare_word_value
+    main_test.go:305: rejected with location: hujson: line 1, column 7: invalid literal: yes
+=== RUN   TestNonStandardJSON/trailing_comma_object
+    main_test.go:314: accepted, byte-identical
+=== RUN   TestNonStandardJSON/trailing_comma_array
+    main_test.go:314: accepted, byte-identical
+=== RUN   TestNonStandardJSON/line_comment
+    main_test.go:314: accepted, byte-identical
+=== RUN   TestNonStandardJSON/block_comment
+    main_test.go:314: accepted, byte-identical
+=== RUN   TestNonStandardJSON/leading_UTF-8_BOM
+    main_test.go:305: rejected with location: hujson: line 1, column 1: invalid character '\ufeff' at start of value
+--- PASS: TestNonStandardJSON (0.00s)
+    --- PASS: TestNonStandardJSON/single-quoted_key (0.00s)
+    --- PASS: TestNonStandardJSON/single-quoted_value (0.00s)
+    --- PASS: TestNonStandardJSON/unquoted_key (0.00s)
+    --- PASS: TestNonStandardJSON/bare_word_value (0.00s)
+    --- PASS: TestNonStandardJSON/trailing_comma_object (0.00s)
+    --- PASS: TestNonStandardJSON/trailing_comma_array (0.00s)
+    --- PASS: TestNonStandardJSON/line_comment (0.00s)
+    --- PASS: TestNonStandardJSON/block_comment (0.00s)
+    --- PASS: TestNonStandardJSON/leading_UTF-8_BOM (0.00s)
+=== RUN   TestColumnUnit
+    main_test.go:335: value at offset 11: line=1 byteCol=12 runeCol=8; hujson positions are BYTE columns
+--- PASS: TestColumnUnit (0.00s)
+FAIL
+FAIL	portage/internal/profile/spike-jsonc	0.021s
+FAIL

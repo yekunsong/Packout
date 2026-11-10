@@ -1,0 +1,1 @@
+Fixture residual file; no entry claims it, so the catch-all must report it at confidence 0.5.

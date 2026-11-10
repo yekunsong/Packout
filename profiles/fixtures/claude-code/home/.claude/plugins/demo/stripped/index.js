@@ -1,0 +1,1 @@
+stripped plugin code

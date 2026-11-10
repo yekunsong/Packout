@@ -1,0 +1,11 @@
+model = "fixture-model"
+approval_policy = "on-request"
+
+[model_providers.local]
+name = "Fixture provider"
+base_url = "http://127.0.0.1:0/v1"
+env_key = "FIXTURE_API_KEY"
+api_key = "sk-fake-000000000000"
+
+[projects.'D:/Study/demo']
+trust_level = "trusted"

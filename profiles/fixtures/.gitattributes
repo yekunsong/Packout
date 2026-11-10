@@ -1,0 +1,10 @@
+# Fixture bytes are copied verbatim by the selftest materializer, so force LF
+# for text fixtures regardless of the developer's core.autocrlf setting.
+* text=auto eol=lf
+*.bin -text
+*.img -text
+*.pdf -text
+*.sqlite -text
+*.sqlite-wal -text
+*.sqlite-shm -text
+*.db -text

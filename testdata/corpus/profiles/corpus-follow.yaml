@@ -1,0 +1,47 @@
+{
+  "schema_version": "2.0",
+  "name": "corpus-follow",
+  "title": "corpus overlay: cache entries follow links",
+  "_note": "JSON syntax on purpose: it is valid YAML and the hujson loader reads both (D-017). Only the cache entry is needed by C26; it follows links with a hard depth bound.",
+  "applies_to": {
+    "os": ["windows", "darwin", "linux"]
+  },
+  "roots": {
+    "home": {
+      "windows": "%USERPROFILE%",
+      "darwin": "$HOME",
+      "linux": "$HOME"
+    },
+    "repo": "${REPO_ROOT}"
+  },
+  "defaults": {
+    "expand": "per-file",
+    "max_depth": 8
+  },
+  "entries": [
+    {
+      "id": "cache-debug-statsig-ide",
+      "kind": "glob-group",
+      "root": "home",
+      "paths": [
+        ".claude/cache/**",
+        ".claude/debug/**",
+        ".claude/statsig/**",
+        ".claude/ide/**"
+      ],
+      "layer": "L0",
+      "secret": "none",
+      "extractor": "none",
+      "expand": "aggregate",
+      "priority": 5,
+      "follow_symlinks": true,
+      "max_depth": 8,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "缓存、调试日志、特性开关缓存与 IDE 锁文件，均可再生"
+        }
+      ]
+    }
+  ]
+}

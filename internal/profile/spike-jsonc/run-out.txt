@@ -1,0 +1,57 @@
+off= 33..453 line=2 col=1 kind='{' raw="{\n  \"$schema\": \"https://example.com/profile.schema.json\", // trailing comment\n  \"name\": \"quoted name\",\n  \"version\": \"1.2.3\",\n  \"description\": \"line one\\nline two\",\n  /* block comment\n     spanning two lines */\n  \"tags\": [\"a\", \"b\", \"c\"],\n\n  \"future_field\": {\n    \"nested\": true,\n    \"unknown_array\": [1, 2, 3]\n  },\n\n  // foot comment for deps\n  \"deps\": [\n    {\n      \"name\": \"foo\",\n      \"constraint\": \">=1.0\"\n    }\n  ]\n}"
+off= 37.. 46 line=3 col=3 kind='"' raw="\"$schema\""
+off= 48.. 89 line=3 col=14 kind='"' raw="\"https://example.com/profile.schema.json\""
+off=113..119 line=4 col=3 kind='"' raw="\"name\""
+off=121..134 line=4 col=11 kind='"' raw="\"quoted name\""
+off=138..147 line=5 col=3 kind='"' raw="\"version\""
+off=149..156 line=5 col=14 kind='"' raw="\"1.2.3\""
+off=160..173 line=6 col=3 kind='"' raw="\"description\""
+off=175..195 line=6 col=18 kind='"' raw="\"line one\\nline two\""
+off=245..251 line=9 col=3 kind='"' raw="\"tags\""
+off=253..268 line=9 col=11 kind='[' raw="[\"a\", \"b\", \"c\"]"
+off=254..257 line=9 col=12 kind='"' raw="\"a\""
+off=259..262 line=9 col=17 kind='"' raw="\"b\""
+off=264..267 line=9 col=22 kind='"' raw="\"c\""
+off=273..287 line=11 col=3 kind='"' raw="\"future_field\""
+off=289..345 line=11 col=19 kind='{' raw="{\n    \"nested\": true,\n    \"unknown_array\": [1, 2, 3]\n  }"
+off=295..303 line=12 col=5 kind='"' raw="\"nested\""
+off=305..309 line=12 col=15 kind='t' raw="true"
+off=315..330 line=13 col=5 kind='"' raw="\"unknown_array\""
+off=332..341 line=13 col=22 kind='[' raw="[1, 2, 3]"
+off=333..334 line=13 col=23 kind='0' raw="1"
+off=336..337 line=13 col=26 kind='0' raw="2"
+off=339..340 line=13 col=29 kind='0' raw="3"
+off=377..383 line=17 col=3 kind='"' raw="\"deps\""
+off=385..451 line=17 col=11 kind='[' raw="[\n    {\n      \"name\": \"foo\",\n      \"constraint\": \">=1.0\"\n    }\n  ]"
+off=391..447 line=18 col=5 kind='{' raw="{\n      \"name\": \"foo\",\n      \"constraint\": \">=1.0\"\n    }"
+off=399..405 line=19 col=7 kind='"' raw="\"name\""
+off=407..412 line=19 col=15 kind='"' raw="\"foo\""
+off=420..432 line=20 col=7 kind='"' raw="\"constraint\""
+off=434..441 line=20 col=21 kind='"' raw="\">=1.0\""
+
+Parse+Pack identical: true (orig 454 bytes, got 454)
+
+--- Standardize (comments become spaces) ---
+                                
+{
+  "$schema": "https://example.com/profile.schema.json",                    
+  "name": "quoted name",
+  "version": "1.2.3",
+  "description": "line one\nline two",
+                  
+                          
+  "tags": ["a", "b", "c"],
+
+  "future_field": {
+    "nested": true,
+    "unknown_array": [1, 2, 3]
+  },
+
+                          
+  "deps": [
+    {
+      "name": "foo",
+      "constraint": ">=1.0"
+    }
+  ]
+}

@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-dqGjr320oqM_W_cHr-Wp-w'">
+<meta name="referrer" content="no-referrer">
+<title>固定输入报告</title>
+<style>
+:root{
+  --bg:#f7f8fa; --fg:#1b1f24; --muted:#5b6573; --card:#ffffff; --line:#d8dde5;
+  --accent:#0b5cad; --code-bg:#eef1f5;
+  --warn-bg:#fff4d6; --warn-fg:#6b4b00; --warn-line:#e8c96b;
+  --danger-bg:#fde8e8; --danger-fg:#8a1c1c; --danger-line:#e8a3a3;
+  --ok-bg:#e6f6ea; --ok-fg:#1e5b2c; --ok-line:#a9d8b5;
+  --info-bg:#e8f1fb; --info-fg:#123f6d; --info-line:#a9c7e8;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#11151a; --fg:#e6e9ee; --muted:#9aa6b5; --card:#181e25; --line:#2b3542;
+    --accent:#6ab0ff; --code-bg:#222a33;
+    --warn-bg:#3a2f10; --warn-fg:#ffd77a; --warn-line:#6b5518;
+    --danger-bg:#3a1717; --danger-fg:#ff9b9b; --danger-line:#6b2626;
+    --ok-bg:#14301c; --ok-fg:#93e6a8; --ok-line:#275536;
+    --info-bg:#12283f; --info-fg:#a9cdf5; --info-line:#264a70;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--fg);
+  font:14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans CJK SC","Microsoft YaHei",sans-serif;
+  padding:16px; max-width:1100px; margin:0 auto; overflow-wrap:anywhere;
+}
+h1{font-size:24px;line-height:1.25;margin:0 0 4px}
+h2{font-size:17px;margin:0 0 10px}
+h3{font-size:14px;margin:14px 0 6px}
+p{margin:6px 0}
+a{color:var(--accent);overflow-wrap:anywhere;word-break:break-word}
+.sub{color:var(--muted);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin:14px 0}
+.banner{padding:10px 12px;border-radius:8px;margin:10px 0;border:1px solid}
+.banner strong{font-weight:700}
+.warn{background:var(--warn-bg);color:var(--warn-fg);border-color:var(--warn-line)}
+.danger{background:var(--danger-bg);color:var(--danger-fg);border-color:var(--danger-line)}
+.ok{background:var(--ok-bg);color:var(--ok-fg);border-color:var(--ok-line)}
+.info{background:var(--info-bg);color:var(--info-fg);border-color:var(--info-line)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.stat{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg)}
+.stat .k{display:block;color:var(--muted);font-size:12px;margin-bottom:2px}
+.stat .v{display:block;font-weight:600;font-size:15px}
+.big{font-size:20px}
+.table-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:8px;margin:8px 0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);overflow-wrap:anywhere;word-break:break-word}
+th{background:var(--code-bg);font-weight:600;white-space:nowrap}
+tr:last-child td{border-bottom:0}
+.path,.mono{font-family:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace;word-break:break-all}
+.muted{color:var(--muted)}
+.badge{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:0 7px;font-size:12px;line-height:18px;background:var(--bg);margin-right:4px}
+.badge.l5{border-color:var(--danger-line);color:var(--danger-fg)}
+.badge.l3{border-color:var(--warn-line);color:var(--warn-fg)}
+.badge.l0,.badge.l1{border-color:var(--ok-line);color:var(--ok-fg)}
+details{border:1px solid var(--line);border-radius:8px;margin:8px 0;padding:0 10px;background:var(--card)}
+details>summary{cursor:pointer;padding:8px 2px;font-weight:600}
+details.unit>summary{font-weight:500}
+details.unit .body{padding-bottom:10px}
+details.paged{margin:10px 0}
+.topbar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+button{font:inherit;padding:5px 10px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--fg);cursor:pointer}
+button:hover{border-color:var(--accent)}
+nav.toc{display:flex;gap:10px;flex-wrap:wrap;font-size:13px;margin:6px 0 0}
+nav.toc a{text-decoration:none}
+footer{color:var(--muted);font-size:12px;margin:24px 0 8px;border-top:1px solid var(--line);padding-top:10px}
+@media (max-width:480px){
+  body{padding:10px}
+  h1{font-size:20px}
+  h2{font-size:16px}
+  th,td{padding:5px 6px}
+  .grid{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+}
+</style>
+</head>
+<body>
+
+
+<header>
+  <h1>固定输入报告</h1>
+  <p class="sub">生成于 2026-11-10 09:14:50 UTC · 机器 windows/amd64 (10.0.26100) · scan_id <span class="mono">01JQ8Z3K7M2V9T4R6W8X0Y2B4C</span></p>
+  <nav class="toc">
+    <a href="#summary">摘要</a>
+    <a href="#l5">L5 重登清单</a>
+    <a href="#unversioned">未版本控制 L2/L3</a>
+    <a href="#secrets">凭据位置</a>
+    <a href="#reclaim">可再生体积</a>
+    <a href="#residual">残留项</a>
+    <a href="#details">结论与信号</a>
+    <a href="#notes">扫描说明</a>
+  </nav>
+</header>
+
+<section id="summary" class="card">
+  <h2>摘要</h2>
+  <div class="grid">
+    <div class="stat"><span class="k">扫描时间</span><span class="v">2026-11-10 09:12:03 UTC</span></div>
+    <div class="stat"><span class="k">结束时间</span><span class="v">2026-11-10 09:14:50 UTC</span></div>
+    <div class="stat"><span class="k">耗时</span><span class="v">2m47s</span></div>
+    <div class="stat"><span class="k">机器</span><span class="v">windows/amd64 (10.0.26100)</span></div>
+    <div class="stat"><span class="k">完整扫描</span><span class="v">是</span></div>
+    <div class="stat"><span class="k">条目总数</span><span class="v big">6</span></div>
+    <div class="stat"><span class="k">残留数</span><span class="v big">1</span></div>
+    <div class="stat"><span class="k">可释放体积（分配大小）</span><span class="v big">2.0 MiB</span></div>
+    <div class="stat"><span class="k">工具</span><span class="v">packout/0.1.0</span></div>
+  </div>
+  <div class="banner warn" role="note">
+    <strong>残留项未做内容级密检测。</strong>
+    残留项由 catch-all 兜底，只记录存在性、体积与路径，不读取内容；因此“未发现凭据”不代表残留项里没有凭据。这是 D-021 第 7 条要求的固定提示。
+  </div>
+  <div class="banner danger">
+    <strong>是否含密：</strong>是（仅显示掩码与位置，不含完整值）<br>
+    <strong>可否外发：</strong>否。报告包含本机路径、机器信息与凭据位置；即使使用 --redact-paths，也只能降低可识别度，不能当作可公开或可转发的文件。
+    
+  </div>
+</section>
+
+<section id="l5" class="card">
+  <h2>L5 清单：换机后必须人工重登（1）</h2>
+  <p class="muted">此类项无法通过打包迁移；即使加密也可能在新机解不开。请按官方路径在新机重新登录，并注意前置设备/条件。</p>
+  
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>路径 / 目标</th><th>entry</th><th>profile</th><th>官方路径</th><th>前置设备 / 条件</th><th>置信</th><th>密级</th></tr></thead>
+      <tbody>
+      
+        <tr>
+          <td class="path">wincred:Claude Code-credentials</td>
+          <td class="mono">oauth-credential-store</td>
+          <td>claude-code</td>
+          <td>OAuth 凭据由系统凭据库保管<br><span class="mono muted">https://code.claude.com/docs/en/setup</span></td>
+          <td>wincred 目标存在，refresh token 绑定设备会话</td>
+          <td class="mono">0.960</td>
+          <td><span class="badge l5">relogin</span></td>
+        </tr>
+      
+      </tbody>
+    </table>
+  </div>
+  
+</section>
+
+<section id="unversioned" class="card">
+  <h2>未版本控制的 L2/L3（2）</h2>
+  <p class="muted">这些路径没有被任何版本库跟踪，却承载配置或会话状态——本产品的核心发现。丢失后无法从远端恢复。</p>
+  
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>路径</th><th>层</th><th>动作</th><th>entry</th><th>profile</th><th>分配大小</th><th>置信</th><th>risk_flags</th></tr></thead>
+      <tbody>
+      
+        <tr>
+          <td class="path">C:\Users\alice\.claude\projects\D--Study-packout\4b1c.jsonl</td>
+          <td><span class="badge L3">L3</span></td>
+          <td class="mono">migrate</td>
+          <td class="mono">projects-transcripts</td>
+          <td>claude-code</td>
+          <td class="mono">11.8 MiB</td>
+          <td class="mono">0.970</td>
+          <td class="mono">gitignored, not_versioned</td>
+        </tr>
+      
+        <tr>
+          <td class="path">&lt;script&gt;alert(1)&lt;/script&gt;</td>
+          <td><span class="badge L2">L2</span></td>
+          <td class="mono">keep</td>
+          <td class="mono">&lt;/style&gt;&lt;script&gt;alert(2)&lt;/script&gt;</td>
+          <td>&#34;&gt;&lt;img src=x onerror=alert(1)&gt;</td>
+          <td class="mono">512 B</td>
+          <td class="mono">0.600</td>
+          <td class="mono">not_versioned</td>
+        </tr>
+      
+      </tbody>
+    </table>
+  </div>
+  
+</section>
+
+<section id="secrets" class="card">
+  <h2>明文凭据位置（2 处）</h2>
+  <p class="muted">报告只显示非密前缀掩码与加盐指纹，完整值从不进入报告（manifest 本身也不保存完整值）。manifest 只保存 ≤7 字符的非密前缀，不保存末 4 位，因此掩码列为「前缀…」，绝不合成尾串。指纹用于同一次扫描内对账；跨扫描需 stable salt 才可比。</p>
+  
+  <div class="topbar"><button type="button" id="expand-all">展开全部</button><button type="button" id="collapse-all">折叠全部</button></div>
+  
+  <details class="paged" open>
+    <summary>全部条目</summary>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>路径</th><th>定位</th><th>类型</th><th>分类</th><th>掩码</th><th>指纹</th><th>备注</th></tr></thead>
+        <tbody>
+        
+          <tr>
+            <td class="path">wincred:Claude Code-credentials</td>
+            <td class="mono">target</td>
+            <td class="mono">known_prefix</td>
+            <td class="mono">relogin</td>
+            <td class="mono">eyJhbGc…</td>
+            <td class="mono">sha256:0a9b7c2d</td>
+            <td></td>
+          </tr>
+        
+          <tr>
+            <td class="path">C:\Users\alice\.claude\projects\D--Study-packout\4b1c.jsonl</td>
+            <td class="mono">42:17</td>
+            <td class="mono">known_prefix</td>
+            <td class="mono">restore</td>
+            <td class="mono">sk-ant-…</td>
+            <td class="mono">sha256:6c1e88f0</td>
+            <td></td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </details>
+  
+  
+  
+</section>
+
+<section id="reclaim" class="card">
+  <h2>可再生体积（L0 / L1）</h2>
+  <p class="muted">这些层可在新机重建；重建需下载或重新生成，因此不计入“需要搬运”的体积。</p>
+  <div class="grid">
+    <div class="stat"><span class="k">L0 可重建（1 项）</span><span class="v big">2.0 MiB</span></div>
+    <div class="stat"><span class="k">L1 可重装（1 项，重建需下载）</span><span class="v big">4.0 KiB</span></div>
+    <div class="stat"><span class="k">proposed_action=delete（1 项）</span><span class="v big">2.0 MiB</span></div>
+  </div>
+  <p class="muted">体积均为分配大小（allocation size），不是逻辑大小；聚合项按 manifest 记录的值计入。</p>
+</section>
+
+<section id="residual" class="card">
+  <h2>残留项（catch-all，1）</h2>
+  <p class="banner warn"><strong>残留项未做内容级密检测。</strong> 这些路径没有被任何 profile entry 声明；它们的密级为默认 none/scan，报告不读取内容。</p>
+  
+  
+  <details class="paged" open>
+    <summary>全部条目</summary>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>路径</th><th>层</th><th>动作</th><th>entry</th><th>分配大小</th><th>聚合后代</th><th>置信</th><th>risk_flags</th></tr></thead>
+        <tbody>
+        
+          <tr>
+            <td class="path">C:\Users\alice\.claude\loose.txt</td>
+            <td><span class="badge L2">L2</span></td>
+            <td class="mono">keep</td>
+            <td class="mono">home-residual</td>
+            <td class="mono">4.0 KiB</td>
+            <td class="mono">3 个后代</td>
+            <td class="mono">0.500</td>
+            <td class="mono">low_confidence, residual</td>
+          </tr>
+        
+        </tbody>
+      </table>
+    </div>
+  </details>
+  
+  
+</section>
+
+
+<section id="details" class="card">
+  <h2>结论与信号（1 页）</h2>
+  <p class="muted">每条结论下列出支撑它的 signals。带链接的条目是官方文档出处，仅在点击时打开，不会自动请求；均带 rel="noopener noreferrer"。</p>
+  
+  <details class="paged" open>
+    <summary>全部条目</summary>
+    
+    <details class="unit">
+      <summary>
+        <span class="badge L5">L5</span>
+        <span class="path">wincred:Claude Code-credentials</span>
+      </summary>
+      <div class="body">
+        <p class="sub">
+          entry <span class="mono">oauth-credential-store</span>
+          · profile claude-code
+          · action <span class="mono">relogin</span>
+          · confidence <span class="mono">0.960</span>
+          · secret <span class="mono">relogin</span>
+          
+        </p>
+        
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>src</th><th>note</th><th>出处</th></tr></thead>
+            <tbody>
+            
+              <tr>
+                <td class="mono">profile_rule</td>
+                <td>profile claude-code v2.0 entry oauth-credential-store 声明 L5/relogin</td>
+                <td>—</td>
+              </tr>
+            
+              <tr>
+                <td class="mono">probe_result</td>
+                <td>wincred 目标存在，refresh token 绑定设备会话</td>
+                <td>—</td>
+              </tr>
+            
+              <tr>
+                <td class="mono">official_docs</td>
+                <td>OAuth 凭据由系统凭据库保管</td>
+                <td><a href="https://code.claude.com/docs/en/setup" rel="noopener noreferrer" target="_blank">https://code.claude.com/docs/en/setup</a></td>
+              </tr>
+            
+            </tbody>
+          </table>
+        </div>
+        
+      </div>
+    </details>
+    
+    <details class="unit">
+      <summary>
+        <span class="badge L3">L3</span>
+        <span class="path">C:\Users\alice\.claude\projects\D--Study-packout\4b1c.jsonl</span>
+      </summary>
+      <div class="body">
+        <p class="sub">
+          entry <span class="mono">projects-transcripts</span>
+          · profile claude-code
+          · action <span class="mono">migrate</span>
+          · confidence <span class="mono">0.970</span>
+          · secret <span class="mono">scan</span>
+          · risk_flags <span class="mono">gitignored, not_versioned</span>
+        </p>
+        
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>src</th><th>note</th><th>出处</th></tr></thead>
+            <tbody>
+            
+              <tr>
+                <td class="mono">profile_rule</td>
+                <td>profile claude-code v2.0 entry projects-transcripts 声明 L3</td>
+                <td>—</td>
+              </tr>
+            
+              <tr>
+                <td class="mono">gitignore_hit</td>
+                <td>~/.config/git/ignore 的 **/.claude/projects/ 命中，未进版本库</td>
+                <td>—</td>
+              </tr>
+            
+              <tr>
+                <td class="mono">official_docs</td>
+                <td>transcript 记录会话内读过的全部内容，不可再生</td>
+                <td><a href="https://code.claude.com/docs/en/memory" rel="noopener noreferrer" target="_blank">https://code.claude.com/docs/en/memory</a></td>
+              </tr>
+            
+            </tbody>
+          </table>
+        </div>
+        
+      </div>
+    </details>
+    
+    <details class="unit">
+      <summary>
+        <span class="badge L0">L0</span>
+        <span class="path">C:\Users\alice\.claude\shell-snapshots\snapshot-1.sh</span>
+      </summary>
+      <div class="body">
+        <p class="sub">
+          entry <span class="mono">shell-snapshots</span>
+          · profile claude-code
+          · action <span class="mono">delete</span>
+          · confidence <span class="mono">0.960</span>
+          · secret <span class="mono">none</span>
+          
+        </p>
+        
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>src</th><th>note</th><th>出处</th></tr></thead>
+            <tbody>
+            
+              <tr>
+                <td class="mono">profile_rule</td>
+                <td>profile claude-code v2.0 entry shell-snapshots 声明 L0</td>
+                <td>—</td>
+              </tr>
+            
+              <tr>
+                <td class="mono">content_match</td>
+                <td>文件头为 shell 函数导出与环境快照，无用户内容</td>
+                <td>—</td>
+              </tr>
+            
+            </tbody>
+          </table>
+        </div>
+        
+      </div>
+    </details>
+    
+    <details class="unit">
+      <summary>
+        <span class="badge L1">L1</span>
+        <span class="path">C:\Users\alice\.claude\plugins\cache.bin</span>
+      </summary>
+      <div class="body">
+        <p class="sub">
+          entry <span class="mono">plugins-cache</span>
+          · profile claude-code
+          · action <span class="mono">reinstall</span>
+          · confidence <span class="mono">0.950</span>
+          · secret <span class="mono">none</span>
+          
+        </p>
+        
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>src</th><th>note</th><th>出处</th></tr></thead>
+            <tbody>
+            
+              <tr>
+                <td class="mono">profile_rule</td>
+                <td>profile claude-code v2.0 entry plugins-cache 声明 L1</td>
+                <td>—</td>
+              </tr>
+            
+            </tbody>
+          </table>
+        </div>
+        
+      </div>
+    </details>
+    
+    <details class="unit">
+      <summary>
+        <span class="badge L2">L2</span>
+        <span class="path">C:\Users\alice\.claude\loose.txt</span>
+      </summary>
+      <div class="body">
+        <p class="sub">
+          entry <span class="mono">home-residual</span>
+          · profile claude-code
+          · action <span class="mono">keep</span>
+          · confidence <span class="mono">0.500</span>
+          · secret <span class="mono">scan</span>
+          · risk_flags <span class="mono">low_confidence, residual</span>
+        </p>
+        
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>src</th><th>note</th><th>出处</th></tr></thead>
+            <tbody>
+            
+              <tr>
+                <td class="mono">filesystem_stat</td>
+                <td>未被任何 entry 命中，catch-all 残留</td>
+                <td>—</td>
+              </tr>
+            
+            </tbody>
+          </table>
+        </div>
+        
+      </div>
+    </details>
+    
+    <details class="unit">
+      <summary>
+        <span class="badge L2">L2</span>
+        <span class="path">&lt;script&gt;alert(1)&lt;/script&gt;</span>
+      </summary>
+      <div class="body">
+        <p class="sub">
+          entry <span class="mono">&lt;/style&gt;&lt;script&gt;alert(2)&lt;/script&gt;</span>
+          · profile &#34;&gt;&lt;img src=x onerror=alert(1)&gt;
+          · action <span class="mono">keep</span>
+          · confidence <span class="mono">0.600</span>
+          · secret <span class="mono">none</span>
+          · risk_flags <span class="mono">not_versioned</span>
+        </p>
+        
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>src</th><th>note</th><th>出处</th></tr></thead>
+            <tbody>
+            
+              <tr>
+                <td class="mono">content_match</td>
+                <td>note with &#34;quotes&#34; and &lt;/style&gt; and &lt;script&gt;alert(3)&lt;/script&gt;</td>
+                <td>—</td>
+              </tr>
+            
+            </tbody>
+          </table>
+        </div>
+        
+      </div>
+    </details>
+    
+  </details>
+  
+</section>
+
+
+
+<section id="notes" class="card">
+  <h2>扫描说明（notes，1）</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>code</th><th>profile</th><th>entry</th><th>detail</th></tr></thead>
+      <tbody>
+      
+        <tr><td class="mono">probe_unavailable</td><td>claude-code</td><td class="mono">oauth-credential-store</td><td>wincred 探测返回 ERROR_NOT_FOUND</td></tr>
+      
+      </tbody>
+    </table>
+  </div>
+</section>
+
+
+<footer>
+  <p>本报告为单文件离线产物：CSS 与 JS 内联，不请求任何外部子资源；出处链接仅在点击时打开。</p>
+  <p>packout P0 · 报告只读 manifest · 残留项未做内容级密检测 · 生成于 2026-11-10 09:14:50 UTC</p>
+</footer>
+<script nonce="dqGjr320oqM_W_cHr-Wp-w">
+(function(){
+  "use strict";
+  var pages = document.querySelectorAll("details.paged");
+  function setAll(open){
+    for (var i = 0; i < pages.length; i++) { pages[i].open = open; }
+  }
+  var expand = document.getElementById("expand-all");
+  var collapse = document.getElementById("collapse-all");
+  if (expand) { expand.addEventListener("click", function(){ setAll(true); }); }
+  if (collapse) { collapse.addEventListener("click", function(){ setAll(false); }); }
+  try {
+    if (location.search) {
+      history.replaceState(null, "", location.pathname + location.hash);
+    }
+  } catch (e) {   }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,193 @@
+=== RUN   TestColUnit
+    col_test.go:15: value col=5 (runes: bytes would be 8, runes would be 5)
+--- PASS: TestColUnit (0.00s)
+=== RUN   TestUnknownFieldsPreserved
+    main_test.go:39: unknown fields present in Node; struct decode has no slot for them
+--- PASS: TestUnknownFieldsPreserved (0.00s)
+=== RUN   TestNodePositions
+    main_test.go:76: checked 28 nodes; all have line/column, spot check 3:1 / 3:7 ok
+--- PASS: TestNodePositions (0.00s)
+=== RUN   TestLosslessRoundTrip
+=== RUN   TestLosslessRoundTrip/full_sample
+    main_test.go:126: not byte-identical (orig 332 bytes, got 331):
+           1 | orig "# top comment about the profile"
+             | got  "# top comment about the profile"
+        !  2 | orig "---"
+        !    | got  "name: \"quoted name\" # trailing comment"
+        !  3 | orig "name: \"quoted name\"   # trailing comment"
+        !    | got  "version: 1.2.3"
+        !  4 | orig "version: 1.2.3"
+        !    | got  "description: |"
+        !  5 | orig "description: |"
+        !    | got  "  block literal line one"
+        !  6 | orig "  block literal line one"
+        !    | got  "  block literal line two"
+        !  7 | orig "  block literal line two"
+        !    | got  "notes: >-"
+        !  8 | orig "notes: >-"
+        !    | got  "  folded line one folded line two"
+        !  9 | orig "  folded line one"
+        !    | got  "tags: [a, 'b', \"c\"]"
+        ! 10 | orig "  folded line two"
+        !    | got  "base: &base"
+        ! 11 | orig "tags: [a, 'b', \"c\"]"
+        !    | got  "  retries: 3"
+        ! 12 | orig ""
+        !    | got  "deps:"
+        ! 13 | orig "base: &base"
+        !    | got  "  - name: foo"
+        ! 14 | orig "  retries: 3"
+        !    | got  "    !!merge <<: *base"
+        ! 15 | orig "deps:"
+        !    | got  "    constraint: \">=1.0\""
+        ! 16 | orig "  - name: foo"
+        !    | got  ""
+        ! 17 | orig "    <<: *base"
+        !    | got  "# foot comment for deps"
+        ! 18 | orig "    constraint: \">=1.0\""
+        !    | got  ""
+          19 | orig ""
+             | got  ""
+        ! 20 | orig "# foot comment for deps"
+        !    | got  ""
+          21 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/trailing_comment_spacing
+    main_test.go:126: not byte-identical (orig 25 bytes, got 23):
+        !  1 | orig "a: 1   # keep my columns"
+        !    | got  "a: 1 # keep my columns"
+           2 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/document_start_marker
+    main_test.go:126: not byte-identical (orig 9 bytes, got 5):
+        !  1 | orig "---"
+        !    | got  "a: 1"
+        !  2 | orig "a: 1"
+        !    | got  ""
+           3 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/folded_block_scalar
+    main_test.go:126: not byte-identical (orig 32 bytes, got 30):
+           1 | orig "a: >-"
+             | got  "a: >-"
+        !  2 | orig "  folded one"
+        !    | got  "  folded one folded two"
+        !  3 | orig "  folded two"
+        !    | got  ""
+           4 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/literal_block_chomping
+    main_test.go:123: byte-identical (24 bytes)
+=== RUN   TestLosslessRoundTrip/blank_line_between_keys
+    main_test.go:126: not byte-identical (orig 11 bytes, got 10):
+           1 | orig "a: 1"
+             | got  "a: 1"
+        !  2 | orig ""
+        !    | got  "b: 2"
+        !  3 | orig "b: 2"
+        !    | got  ""
+           4 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/comment_between_keys
+    main_test.go:123: byte-identical (20 bytes)
+=== RUN   TestLosslessRoundTrip/merge_key
+    main_test.go:126: not byte-identical (orig 28 bytes, got 36):
+           1 | orig "base: &b"
+             | got  "base: &b"
+           2 | orig "  x: 1"
+             | got  "  x: 1"
+           3 | orig "d:"
+             | got  "d:"
+        !  4 | orig "  <<: *b"
+        !    | got  "  !!merge <<: *b"
+           5 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/quoted_key
+    main_test.go:123: byte-identical (9 bytes)
+=== RUN   TestLosslessRoundTrip/multi-line_flow_sequence
+    main_test.go:126: not byte-identical (orig 12 bytes, got 10):
+        !  1 | orig "a: [1,"
+        !    | got  "a: [1, 2]"
+        !  2 | orig "  2]"
+        !    | got  ""
+           3 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/sequence_item_comment
+    main_test.go:123: byte-identical (23 bytes)
+=== RUN   TestLosslessRoundTrip/unicode_escape
+    main_test.go:126: not byte-identical (orig 18 bytes, got 12):
+        !  1 | orig "a: \"\\u4f60\\u597d\""
+        !    | got  "a: \"你好\""
+           2 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/tab_escape
+    main_test.go:123: byte-identical (15 bytes)
+=== RUN   TestLosslessRoundTrip/comment_detached_by_blank_line
+    main_test.go:126: not byte-identical (orig 27 bytes, got 25):
+           1 | orig "a: 1"
+             | got  "a: 1"
+        !  2 | orig ""
+        !    | got  "# stands alone"
+        !  3 | orig "# stands alone"
+        !    | got  "b: 2"
+           4 | orig ""
+             | got  ""
+        !  5 | orig "b: 2"
+        !    | got  ""
+           6 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/no_trailing_newline
+    main_test.go:126: not byte-identical (orig 4 bytes, got 5):
+           1 | orig "a: 1"
+             | got  "a: 1"
+           2 | orig ""
+             | got  ""
+=== RUN   TestLosslessRoundTrip/crlf_line_endings
+    main_test.go:126: not byte-identical (orig 12 bytes, got 10):
+        !  1 | orig "a: 1\r"
+        !    | got  "a: 1"
+        !  2 | orig "b: 2\r"
+        !    | got  "b: 2"
+           3 | orig ""
+             | got  ""
+--- FAIL: TestLosslessRoundTrip (0.00s)
+    --- FAIL: TestLosslessRoundTrip/full_sample (0.00s)
+    --- FAIL: TestLosslessRoundTrip/trailing_comment_spacing (0.00s)
+    --- FAIL: TestLosslessRoundTrip/document_start_marker (0.00s)
+    --- FAIL: TestLosslessRoundTrip/folded_block_scalar (0.00s)
+    --- PASS: TestLosslessRoundTrip/literal_block_chomping (0.00s)
+    --- FAIL: TestLosslessRoundTrip/blank_line_between_keys (0.00s)
+    --- PASS: TestLosslessRoundTrip/comment_between_keys (0.00s)
+    --- FAIL: TestLosslessRoundTrip/merge_key (0.00s)
+    --- PASS: TestLosslessRoundTrip/quoted_key (0.00s)
+    --- FAIL: TestLosslessRoundTrip/multi-line_flow_sequence (0.00s)
+    --- PASS: TestLosslessRoundTrip/sequence_item_comment (0.00s)
+    --- FAIL: TestLosslessRoundTrip/unicode_escape (0.00s)
+    --- PASS: TestLosslessRoundTrip/tab_escape (0.00s)
+    --- FAIL: TestLosslessRoundTrip/comment_detached_by_blank_line (0.00s)
+    --- FAIL: TestLosslessRoundTrip/no_trailing_newline (0.00s)
+    --- FAIL: TestLosslessRoundTrip/crlf_line_endings (0.00s)
+=== RUN   TestDuplicateKeys
+    main_test.go:163: decode into map: err=yaml: unmarshal errors:
+          line 2: mapping key "name" already defined at line 1 value=""
+    main_test.go:171: decode into struct, KnownFields(false): err=yaml: unmarshal errors:
+          line 2: mapping key "name" already defined at line 1 value=""
+--- PASS: TestDuplicateKeys (0.00s)
+=== RUN   TestTypeErrorLocationKnownFieldsFalse
+=== RUN   TestTypeErrorLocationKnownFieldsFalse/KnownFields=false
+    main_test.go:199: TypeError.Errors = ["line 2: cannot unmarshal !!str `abc` into int"]
+    main_test.go:202: full error: "yaml: unmarshal errors:\n  line 2: cannot unmarshal !!str `abc` into int"
+    main_test.go:215: error has line only, no column
+=== RUN   TestTypeErrorLocationKnownFieldsFalse/KnownFields=true
+    main_test.go:199: TypeError.Errors = ["line 2: cannot unmarshal !!str `abc` into int" "line 3: field future not found in type main.cfg"]
+    main_test.go:202: full error: "yaml: unmarshal errors:\n  line 2: cannot unmarshal !!str `abc` into int\n  line 3: field future not found in type main.cfg"
+    main_test.go:215: error has line only, no column
+--- PASS: TestTypeErrorLocationKnownFieldsFalse (0.00s)
+    --- PASS: TestTypeErrorLocationKnownFieldsFalse/KnownFields=false (0.00s)
+    --- PASS: TestTypeErrorLocationKnownFieldsFalse/KnownFields=true (0.00s)
+=== RUN   TestColumnUnit
+    main_test.go:272: columns are rune-counted (col=5); astral chars count 1, Windows UTF-16 editors may count 2
+--- PASS: TestColumnUnit (0.00s)
+FAIL
+FAIL	portage/internal/profile/spike	0.011s
+FAIL

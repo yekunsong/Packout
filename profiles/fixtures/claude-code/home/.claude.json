@@ -1,0 +1,26 @@
+{
+  "machineID": "fake-machine-id-0001",
+  "userID": "fake-user-id-0001",
+  "projects": {
+    "D:/Study/demo": {
+      "allowedTools": [],
+      "history": [
+        {
+          "display": "hello",
+          "apiKey": "sk-fake-000000000000"
+        }
+      ]
+    }
+  },
+  "mcpServers": {
+    "demo": {
+      "command": "node",
+      "env": {
+        "DEMO_TOKEN": "sk-fake-000000000000"
+      }
+    }
+  },
+  "cachedExperimentFeatures": {
+    "example_flag": true
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "comment": "Only objects that text files cannot express. Every ordinary file, zero-filled file and empty directory comes from the profile's selftest block (profiles/<name>.jsonc) and its external fixture tree; see README.md section 4. The materializer builds everything under build/ and never writes the source tree.",
+  "special": {
+    "claude-code": {
+      "home": {
+        "files": [
+          {
+            "path": "outside/target.txt",
+            "content": "symlink target fixture\n"
+          }
+        ],
+        "symlinks": [
+          {
+            "path": ".claude/outside-link",
+            "target": "../outside"
+          }
+        ],
+        "fixture_dir": "home"
+      }
+    },
+    "codex": {
+      "codex": {
+        "dirs": [
+          "packages/app-server-daemon/app-server-daemon-0.0.0-fixture"
+        ],
+        "files": [
+          {
+            "path": "packages/app-server-daemon/app-server-daemon-0.0.0-fixture/package.json",
+            "content": "{\n  \"name\": \"app-server-daemon\",\n  \"version\": \"0.0.0-fixture\"\n}\n"
+          }
+        ],
+        "junctions": [
+          {
+            "path": "packages/app-server-daemon/current",
+            "target": "app-server-daemon-0.0.0-fixture"
+          }
+        ],
+        "sparse": [
+          {
+            "path": "thread_history_1.sqlite",
+            "size": 8192
+          }
+        ],
+        "placeholder": [
+          {
+            "path": "models_cache.json"
+          }
+        ],
+        "fixture_dir": "home"
+      }
+    }
+  }
+}

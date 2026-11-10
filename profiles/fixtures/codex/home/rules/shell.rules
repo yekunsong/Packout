@@ -1,0 +1,2 @@
+# Fixture command-execution rule
+prefix_rule = ["git", "status"]

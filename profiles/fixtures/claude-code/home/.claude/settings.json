@@ -1,0 +1,11 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "sk-ant-fake-000000000000"
+  },
+  "permissions": {
+    "allow": ["Read", "Bash(git status)"]
+  },
+  "statusLine": {
+    "command": "node ~/.claude/statusline.js"
+  }
+}

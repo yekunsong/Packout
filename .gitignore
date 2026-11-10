@@ -1,0 +1,8 @@
+/bin/
+/out*/
+/pkg*/
+/build/
+*.exe
+profiles/fixtures/build/
+testdata/corpus/cases/
+__pycache__/
