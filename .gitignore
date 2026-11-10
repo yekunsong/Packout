@@ -6,3 +6,8 @@
 profiles/fixtures/build/
 testdata/corpus/cases/
 __pycache__/
+
+# 反向放行：Claude Code 会把 **/.claude/settings.local.json 写进全局 gitignore。
+# 我们自己的 fixture 恰恰需要这个文件存在——它演示的就是"被忽略的本地配置"。
+!profiles/fixtures/**/.claude/settings.local.json
+!testdata/corpus/**/.claude/settings.local.json

@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["Read", "Bash(go test ./...)"]
+  },
+  "apiKey": "sk-fake-000000000000"
+}

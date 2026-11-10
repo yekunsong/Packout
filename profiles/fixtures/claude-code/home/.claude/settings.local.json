@@ -1,0 +1,6 @@
+{
+  "permissions": {
+    "allow": ["Read"]
+  },
+  "apiKey": "sk-fake-000000000000"
+}
