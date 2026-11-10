@@ -328,3 +328,14 @@ Windows `chmod` 只映射只读位，`0755`/`0644` 这类 POSIX 权限不成立�
    修法：`scan` 在输出目录写 `roots.json`（实例名→绝对路径，**不进包**）；`export` 自动读它并用清单头里的 profile，`--profile`/`--root` 可覆盖。
    连带决定：`roots.json` 属本机元数据，pack 明确跳过，并加注释说明不打包的原因（会泄漏源机布局且在新机无意义）。
 端到端现已跑通：scan → report → export → verify（`hash-ok, unverified`），篡改一个字节后 verify 报 `sig-size-mismatch` 且退出码 2。
+
+## D-038 一次自我验证：我们自己的 fixture 被全局 gitignore 吃掉
+新克隆测试暴露：`profiles/fixtures/claude-code/{home,repo}/.claude/settings.local.json` 没被提交——因为 Claude Code 首次写该文件时把它加进了 `~/.config/git/ignore`（`**/.claude/settings.local.json`），而全局规则对**所有仓库**生效。
+这正是本产品要解决的问题本身：一个"个人的本地配置"被系统性地排除在版本控制之外，`git status` 看不见，换机就没了。
+处理：在仓库 `.gitignore` 里显式反向放行（`!profiles/fixtures/**/...`）；并在 `profile probe` 里保留"声明但缺失"的输出，让同类事故下次能被看见而不是靠运气发现。
+教训：**新克隆跑测试**必须作为交付前动作——工作区绿不等于仓库完整。
+
+## D-039 远端测试机自 2026-11-11 起不可达
+`120.77.59.18:22` 能完成 TCP 握手但 30–45 s 内不返回 SSH banner（sshd 无法 fork，疑似内存/进程耗尽）。多次重试、换认证方式（密钥/口令）、加长 banner 超时均无效。
+因此**最终验证在本机两个环境完成**：Windows（便携 Go 1.27.3）+ WSL Ubuntu（Go 1.27.3），并额外在**全新克隆**上各跑一遍全量。
+待远端恢复后应补跑 `scripts/rtest.sh`；在此之前，任何"远程已验证"的说法都不成立。
