@@ -83,6 +83,9 @@ type Config struct {
 	// computed before the first write (C-09).
 	Force bool
 
+	// Jobs bounds parallel hashing/copying; <= 0 takes min(GOMAXPROCS, 16).
+	Jobs int
+
 	Limits Limits
 }
 
@@ -161,16 +164,14 @@ func Export(cfg Config) (res *Result, err error) {
 		return nil, fmt.Errorf("%w: %q", ErrNoManifest, manifestDir)
 	}
 	// Manifest structure is a precondition: a package with an invalid
-	// manifest is not worth hashing.
-	if err := manifest.Validate(manifestDir); err != nil {
-		return nil, fmt.Errorf("pack: invalid manifest: %w", err)
+	// manifest is not worth hashing. ReadManifest validates as it parses, so
+	// one load feeds both this check and the extractor below.
+	m, merr := manifest.ReadManifest(manifestDir)
+	if merr != nil {
+		return nil, fmt.Errorf("pack: invalid manifest: %w", merr)
 	}
 	var secretSalt string
 	if cfg.WithSecrets {
-		m, merr := manifest.ReadManifest(manifestDir)
-		if merr != nil {
-			return nil, fmt.Errorf("pack: read manifest: %w", merr)
-		}
 		secretSalt = m.Header.Inputs.SecretSalt
 	}
 
@@ -227,7 +228,7 @@ func Export(cfg Config) (res *Result, err error) {
 		}
 	}
 
-	if _, err := copyTree(manifestDir, filepath.Join(stage, ManifestDirName), cfg.Limits); err != nil {
+	if _, err := copyTree(manifestDir, filepath.Join(stage, ManifestDirName), cfg.Limits, cfg.Jobs); err != nil {
 		return res, err
 	}
 	if err := os.Mkdir(filepath.Join(stage, ConfigDirName), 0o755); err != nil {
@@ -239,7 +240,7 @@ func Export(cfg Config) (res *Result, err error) {
 		}
 		// copyTree requires an empty destination; use a temporary sibling.
 		tmpConfig := filepath.Join(stage, ".config-copy")
-		if _, err := copyTree(configDir, tmpConfig, cfg.Limits); err != nil {
+		if _, err := copyTree(configDir, tmpConfig, cfg.Limits, cfg.Jobs); err != nil {
 			return res, err
 		}
 		if err := os.Remove(filepath.Join(stage, ConfigDirName)); err != nil {
@@ -249,7 +250,7 @@ func Export(cfg Config) (res *Result, err error) {
 			return res, err
 		}
 	} else if cfg.Profile != nil {
-		n, werr, xerr := extractConfig(manifestDir, cfg.Profile, cfg.Roots, filepath.Join(stage, ConfigDirName), cfg.Limits, secrets)
+		n, werr, xerr := extractConfig(m, cfg.Profile, cfg.Roots, filepath.Join(stage, ConfigDirName), cfg.Limits, secrets, cfg.Jobs)
 		res.ConfigFiles = n
 		res.Warnings = append(res.Warnings, werr...)
 		if xerr != nil {
@@ -259,7 +260,7 @@ func Export(cfg Config) (res *Result, err error) {
 		res.Warnings = append(res.Warnings, "没有 profile，config/ 未抽取；secrets.age 为空")
 	}
 	if reinstallDir != "" {
-		if _, err := copyTree(reinstallDir, filepath.Join(stage, ReinstallDirName), cfg.Limits); err != nil {
+		if _, err := copyTree(reinstallDir, filepath.Join(stage, ReinstallDirName), cfg.Limits, cfg.Jobs); err != nil {
 			return res, err
 		}
 	} else if err := os.Mkdir(filepath.Join(stage, ReinstallDirName), 0o755); err != nil {
@@ -294,7 +295,7 @@ func Export(cfg Config) (res *Result, err error) {
 		res.SecretsPath = filepath.Join(out, SecretsName)
 	}
 
-	entries, err := scanTree(stage, cfg.Limits, true)
+	entries, err := scanTree(stage, cfg.Limits, true, cfg.Jobs)
 	if err != nil {
 		return res, err
 	}
@@ -314,7 +315,7 @@ func Export(cfg Config) (res *Result, err error) {
 	res.Entries = sig.EntryCount
 	res.TotalBytes = sig.TotalBytes
 
-	if err := install(stage, out, cfg.Force, cfg.Limits, sig, res); err != nil {
+	if err := install(stage, out, cfg.Force, cfg.Limits, cfg.Jobs, sig, res); err != nil {
 		return res, err
 	}
 	committed = true
@@ -351,7 +352,7 @@ func optionalDir(override, fallback string) (string, error) {
 }
 
 // install moves staging to out, or diffs and merges into a non-empty out.
-func install(stage, out string, force bool, limits Limits, newSIG *SIG, res *Result) error {
+func install(stage, out string, force bool, limits Limits, jobs int, newSIG *SIG, res *Result) error {
 	fi, err := fsx.Lstat(out)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -375,7 +376,7 @@ func install(stage, out string, force bool, limits Limits, newSIG *SIG, res *Res
 		}
 		return os.Rename(stage, out)
 	}
-	oldEntries, err := scanTree(out, limits, true)
+	oldEntries, err := scanTree(out, limits, true, jobs)
 	if err != nil {
 		return fmt.Errorf("pack: existing destination: %w", err)
 	}
@@ -598,6 +599,8 @@ type VerifyOptions struct {
 	// PubKeyPath is --pubkey. When set it is the only key source; otherwise
 	// ~/.config/packout/trusted_keys is used when it exists.
 	PubKeyPath string
+	// Jobs bounds parallel tree hashing; <= 0 takes min(GOMAXPROCS, 16).
+	Jobs int
 	// TrustedKeysPath overrides the default trusted-keys file.
 	TrustedKeysPath string
 	// OnKeySeen is called for every public key that actually verified the
@@ -687,7 +690,7 @@ func VerifyWithOptions(dir string, opt VerifyOptions) (*Verdict, error) {
 	}
 	if !haveSIG {
 		v.Conclusion = ConclusionUnsigned
-		entries, err := scanTree(abs, limits, true)
+		entries, err := scanTree(abs, limits, true, opt.Jobs)
 		if err != nil {
 			v.Problems = append(v.Problems, Problem{Code: "tree-invalid", Detail: err.Error()})
 			return v, err
@@ -718,7 +721,7 @@ func VerifyWithOptions(dir string, opt VerifyOptions) (*Verdict, error) {
 	v.Method = sig.Method
 	v.FormatVersion = sig.FormatVersion
 
-	entries, err := scanTree(abs, limits, true)
+	entries, err := scanTree(abs, limits, true, opt.Jobs)
 	if err != nil {
 		v.Conclusion = ConclusionFailed
 		v.Problems = append(v.Problems, Problem{Code: "tree-invalid", Detail: err.Error()})

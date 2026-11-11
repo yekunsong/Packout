@@ -33,6 +33,7 @@ type exportConfig struct {
 	roots       rootList
 	json        bool
 	quiet       bool
+	jobs        int
 }
 
 type exportSummary struct {
@@ -113,6 +114,7 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 		WithSecrets:  cfg.withSecrets,
 		Crypt:        crypt,
 		Force:        cfg.force,
+		Jobs:         cfg.jobs,
 	})
 	if err != nil {
 		if ctx.Err() != nil {

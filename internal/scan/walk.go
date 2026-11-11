@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"packout/internal/fsx"
 	"packout/internal/manifest"
@@ -96,6 +97,11 @@ func isAbsDecl(p string) (bool, error) {
 }
 
 func (s *scanner) addCandidate(e *profile.Entry, root *rootInstance, path, rel, pat string, info *fsx.Info, cycle bool, matches map[string]int) {
+	concurrent := s.jobs > 1
+	if concurrent {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+	}
 	if len(path) > maxPathBytes {
 		s.addNote(manifest.Note{Code: "path_too_long", Entry: e.ID, Detail: path})
 		return
@@ -190,6 +196,9 @@ func (s *scanner) walkGlob(ctx context.Context, e *profile.Entry, root *rootInst
 	}
 	mx := s.cfg.Profile.EffectiveMaxDepth(e)
 	seen := make(map[string]bool)
+	concurrent := s.jobs > 1
+	sem := make(chan struct{}, maxInt(1, s.jobs-1))
+	var wg sync.WaitGroup
 	var visit func(rel string, depth int)
 	visit = func(rel string, depth int) {
 		if ctx.Err() != nil {
@@ -209,9 +218,19 @@ func (s *scanner) walkGlob(ctx context.Context, e *profile.Entry, root *rootInst
 		}
 		isDir, idInfo := descendable(p, info, s.cfg.FollowSymlinks)
 		cycle := false
-		if isDir && !enterDir(seen, idInfo) {
-			cycle = info.IsReparse
-			isDir = false
+		if isDir {
+			if concurrent {
+				s.mu.Lock()
+				ok := enterDir(seen, idInfo)
+				s.mu.Unlock()
+				if !ok {
+					cycle = info.IsReparse
+					isDir = false
+				}
+			} else if !enterDir(seen, idInfo) {
+				cycle = info.IsReparse
+				isDir = false
+			}
 		}
 		if profile.MatchGlob(pattern, rel) {
 			s.addCandidate(e, root, p, rel, pattern, info, cycle, matches)
@@ -221,7 +240,9 @@ func (s *scanner) walkGlob(ctx context.Context, e *profile.Entry, root *rootInst
 		}
 		entries, err := os.ReadDir(p)
 		if err != nil {
+			s.mu.Lock()
 			s.errs++
+			s.mu.Unlock()
 			s.addNote(manifest.Note{Code: "permission_denied", Entry: e.ID, Detail: err.Error()})
 			return
 		}
@@ -231,12 +252,26 @@ func (s *scanner) walkGlob(ctx context.Context, e *profile.Entry, root *rootInst
 			if s.excluded(e, root, childRel, name) {
 				continue
 			}
+			if concurrent {
+				select {
+				case sem <- struct{}{}:
+					wg.Add(1)
+					go func(childRel string, d int) {
+						defer wg.Done()
+						defer func() { <-sem }()
+						visit(childRel, d)
+					}(childRel, depth+1)
+					continue
+				default:
+				}
+			}
 			visit(childRel, depth+1)
 		}
 	}
 	_ = base
 	if relBase == "" {
 		visit("", 0)
+		wg.Wait()
 		return
 	}
 	// Start at the fixed prefix and evaluate it too: ** may match zero
@@ -245,6 +280,14 @@ func (s *scanner) walkGlob(ctx context.Context, e *profile.Entry, root *rootInst
 		return
 	}
 	visit(relBase, 0)
+	wg.Wait()
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // descendable reports whether the walk may enter info, and which info carries
@@ -407,18 +450,58 @@ func (s *scanner) selectAndProduce(ctx context.Context, matches map[string]int) 
 		}
 	}
 	aggregated := make(map[string]bool) // entry\x00base
-	for _, key := range sortedKeys(s.hits) {
+	keys := sortedKeys(s.hits)
+	for start := 0; start < len(keys); {
+		if ctx.Err() != nil {
+			s.complete = false
+			return
+		}
+		end, bytes := start, int64(0)
+		for end < len(keys) && end-start < prefetchBatchKeys && bytes < prefetchBatchBytes {
+			key := keys[end]
+			cands := s.hits[key]
+			best := bestRank(cands)
+			for ci := range cands {
+				c := cands[ci]
+				if entryRank(c.entry) != best || agg[c.entry.ID] || !prefetchable(c) {
+					continue
+				}
+				_, _, need, _ := s.readPlan(c.entry, c.info)
+				bytes += need
+			}
+			end++
+		}
+
+		var tasks []prefetchTask
+		for _, key := range keys[start:end] {
+			cands := s.hits[key]
+			best := bestRank(cands)
+			for ci := range cands {
+				c := cands[ci]
+				if entryRank(c.entry) != best || agg[c.entry.ID] || !prefetchable(c) {
+					continue
+				}
+				tasks = append(tasks, prefetchTask{
+					ref: candRef{key: key, idx: ci}, e: c.entry, path: c.path, info: c.info,
+				})
+			}
+		}
+		pre := s.prefetchTasks(ctx, tasks)
+		s.produceKeys(ctx, keys[start:end], agg, aggregated, pre)
+		start = end
+	}
+}
+
+// produceKeys emits the winners of one batch of sorted hit keys in order,
+// consuming prefetched reads where the parallel path produced them.
+func (s *scanner) produceKeys(ctx context.Context, keys []string, agg, aggregated map[string]bool, pre map[candRef]*prefetchResult) {
+	for _, key := range keys {
 		cands := s.hits[key]
 		if ctx.Err() != nil {
 			s.complete = false
 			return
 		}
-		best := int64(-1 << 62)
-		for _, c := range cands {
-			if r := entryRank(c.entry); r > best {
-				best = r
-			}
-		}
+		best := bestRank(cands)
 		winners := 0
 		for _, c := range cands {
 			if entryRank(c.entry) != best {
@@ -426,7 +509,7 @@ func (s *scanner) selectAndProduce(ctx context.Context, matches map[string]int) 
 			}
 			winners++
 		}
-		for _, c := range cands {
+		for ci, c := range cands {
 			if entryRank(c.entry) != best {
 				s.covered[key] = true
 				continue
@@ -442,7 +525,7 @@ func (s *scanner) selectAndProduce(ctx context.Context, matches map[string]int) 
 				s.produceAggregate(ctx, c, base)
 				continue
 			}
-			s.produceFile(ctx, c)
+			s.produceFile(ctx, c, pre[candRef{key: key, idx: ci}])
 		}
 		if winners > 1 {
 			for _, c := range cands {
@@ -456,6 +539,20 @@ func (s *scanner) selectAndProduce(ctx context.Context, matches map[string]int) 
 		}
 		delete(s.hits, key)
 	}
+}
+
+func bestRank(cands []candidate) int64 {
+	best := int64(-1 << 62)
+	for _, c := range cands {
+		if r := entryRank(c.entry); r > best {
+			best = r
+		}
+	}
+	return best
+}
+
+func prefetchable(c candidate) bool {
+	return c.info != nil && !c.info.IsDir && !c.info.IsReparse && !c.info.IsOffline && len(c.path) <= maxPathBytes
 }
 
 // perFileSessions reports whether e must be emitted per file: it is flagged

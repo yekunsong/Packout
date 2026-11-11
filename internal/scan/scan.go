@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 
 	"packout/internal/classify"
 	"packout/internal/fsx"
@@ -37,6 +38,9 @@ type Config struct {
 
 	Clock manifest.Clock
 	Salt  manifest.SaltSource
+
+	// Jobs bounds parallel file hashing; <= 0 takes min(GOMAXPROCS, 16).
+	Jobs int
 
 	FollowSymlinks bool
 	// WithSessions emits profile entries flagged sessions: true per file
@@ -115,6 +119,11 @@ type scanner struct {
 	signals   map[*profile.Entry][]manifest.Signal
 	// budgetNoted dedupes the one-per-entry budget note in sessions mode.
 	budgetNoted map[string]bool
+	jobs        int
+	// mu guards hits, matches, errs and the per-declaration seen maps while
+	// glob walks run concurrently; notesMu guards the note slice.
+	mu      sync.Mutex
+	notesMu sync.Mutex
 
 	// results of declaration pass, keyed by folded path.
 	hits map[string][]candidate
@@ -154,6 +163,7 @@ func Run(ctx context.Context, cfg Config) (res *Result, err error) {
 	if s.goos == "" {
 		s.goos = runtime.GOOS
 	}
+	s.jobs = normalizeJobs(cfg.Jobs)
 	var w *manifest.Writer
 	defer func() {
 		if r := recover(); r != nil {
@@ -221,6 +231,21 @@ func Run(ctx context.Context, cfg Config) (res *Result, err error) {
 		Shards:     w.Shards(),
 		Complete:   s.complete,
 	}, nil
+}
+
+// normalizeJobs resolves the global --jobs knob: default min(GOMAXPROCS, 16).
+func normalizeJobs(n int) int {
+	if n > 0 {
+		return n
+	}
+	n = runtime.GOMAXPROCS(0)
+	if n > 16 {
+		n = 16
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
 
 func writerOptions(cfg Config) []manifest.Option {
@@ -438,6 +463,8 @@ func countResidual(units []manifest.Unit) int64 {
 }
 
 func (s *scanner) addNote(n manifest.Note) {
+	s.notesMu.Lock()
+	defer s.notesMu.Unlock()
 	n.Type = manifest.TypeNote
 	n.ScanID = s.scanID
 	if n.Profile == "" {

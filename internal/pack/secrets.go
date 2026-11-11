@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"packout/internal/manifest"
 	"packout/internal/profile"
@@ -48,6 +49,7 @@ type secretsIndex struct {
 // is written. Values never reach config/.
 type secretCollector struct {
 	salt  []byte
+	mu    sync.Mutex
 	byRef map[string]*secretEntry
 	used  map[*manifest.SecretHit]bool
 }
@@ -66,6 +68,8 @@ func newSecretCollector(salt string) *secretCollector {
 // exported: the package stays self-consistent because the reference lands in
 // the same index.
 func (c *secretCollector) placeholder(u *manifest.Unit, value []byte, locator, source string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	fp := "sha256:" + secret.ValueFPWithSalt(value, c.salt)
 	var match *manifest.SecretHit
 	if u.Secret != nil {
@@ -113,6 +117,8 @@ func (c *secretCollector) placeholder(u *manifest.Unit, value []byte, locator, s
 // sorted so the ciphertext is reproducible for identical input.
 func (c *secretCollector) encode() ([]byte, error) {
 	doc := secretsIndex{Format: secretsFormat, FormatVersion: secretsFormatVersion}
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	refs := make([]string, 0, len(c.byRef))
 	for ref := range c.byRef {
 		refs = append(refs, ref)

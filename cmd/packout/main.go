@@ -120,6 +120,7 @@ func parseScan(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs.BoolVar(&cfg.followSymlinks, "follow-symlinks", false, "跟随符号链接/联接点")
 	fs.BoolVar(&cfg.withSessions, "with-sessions", false, "逐文件导出会话 transcript/tool-results/subagents 原字节（包会大很多）")
 	fs.BoolVar(&cfg.stableSalt, "stable-salt", false, "使用 ~/.config/packout/salt 的持久 salt")
+	fs.IntVar(&cfg.jobs, "jobs", 0, "并行哈希的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
 	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
 	if _, code := parse(fs, args, 0, scanHelp(""), stdout, stderr); code >= 0 {
@@ -162,6 +163,7 @@ func parseExport(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	fs.Var(&cfg.roots, "root", "覆盖 roots.json 中的 role=PATH（可重复）")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
 	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
+	fs.IntVar(&cfg.jobs, "jobs", 0, "并行哈希/复制的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）")
 	if _, code := parse(fs, args, 0, exportHelp, stdout, stderr); code >= 0 {
 		return code
 	}
@@ -174,6 +176,7 @@ func parseVerify(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	fs.StringVar(&cfg.pubkey, "pubkey", "", "公钥文件（默认 ~/.config/packout/trusted_keys）")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 结论")
 	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
+	fs.IntVar(&cfg.jobs, "jobs", 0, "并行哈希的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）")
 	pos, code := parse(fs, args, 1, verifyHelp, stdout, stderr)
 	if code >= 0 {
 		return code
@@ -339,6 +342,7 @@ func scanHelp(ref string) string {
   --follow-symlinks    跟随符号链接/联接点
   --with-sessions      会话内容逐文件出行，导出保留原字节（包会大很多）
   --stable-salt        使用 ~/.config/packout/salt 的持久 salt
+  --jobs N             并行哈希的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）
   --json               stdout 输出可解析的 JSON 摘要
   --quiet              只输出错误
 
@@ -400,6 +404,7 @@ const exportHelp = `用法: packout export --src DIR --out DIR [--force]
   --passphrase     从终端读口令（不回显）；口令命令行传递会泄漏，故不用参数值
   --profile NAME   specified 配置抽取用的 profile（默认读清单头）
   --root role=PATH 覆盖 roots.json 的根映射（可重复）
+  --jobs N         并行哈希/复制的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）
   --json           stdout 输出可解析的 JSON 摘要
   --quiet          只输出错误
 
@@ -441,6 +446,7 @@ const verifyHelp = `用法: packout verify PKG_DIR [--pubkey FILE]
 
   --pubkey FILE  公钥文件（一行一个，'#' 注释）；不给时读
                  ~/.config/packout/trusted_keys（存在才读）
+  --jobs N       并行哈希的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）
   --json         把结论与问题输出为可解析的 JSON
   --quiet        只输出错误
 

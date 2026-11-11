@@ -14,6 +14,7 @@ type verifyConfig struct {
 	pubkey string
 	json   bool
 	quiet  bool
+	jobs   int
 }
 
 // runVerify checks one package. The conclusion word is printed verbatim
@@ -27,7 +28,7 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 	if ctx.Err() != nil {
 		return exitFromCtx(r, ctx)
 	}
-	opt := pack.VerifyOptions{PubKeyPath: cfg.pubkey}
+	opt := pack.VerifyOptions{PubKeyPath: cfg.pubkey, Jobs: cfg.jobs}
 	opt.OnKeySeen = func(fingerprint string, firstSeen bool) {
 		if firstSeen {
 			r.warn("packout: 首次见到公钥 SHA256:%s；已按 TOFU 信任本次，请通过另一渠道核对指纹", fingerprint)

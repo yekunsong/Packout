@@ -39,11 +39,11 @@ func noTrusted(t *testing.T) string {
 func TestSignVerifyOK(t *testing.T) {
 	pkg, _, pub := signedFixture(t)
 
-	before, _ := scanTree(pkg, Limits{}, true)
+	before, _ := scanTree(pkg, Limits{}, true, 0)
 	if _, err := os.Lstat(filepath.Join(pkg, MinisigName)); err != nil {
 		t.Fatalf("signature not written: %v", err)
 	}
-	after, _ := scanTree(pkg, Limits{}, true)
+	after, _ := scanTree(pkg, Limits{}, true, 0)
 	if len(before) != len(after) {
 		t.Fatalf("signature changed the covered tree: %d -> %d entries", len(before), len(after))
 	}

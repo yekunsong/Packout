@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"packout/internal/fsx"
 	"packout/internal/manifest"
@@ -32,11 +34,8 @@ const maxExtractSessionFile = 1 << 30
 // keys-only keeps structure without values. digest and none produce no file.
 // Destinations are always relative: config/<root>/<path-within-root>, so no
 // user name or home prefix is baked into the package.
-func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]string, dest string, limits Limits, secrets *secretCollector) (int, []string, error) {
-	m, err := manifest.ReadManifest(manifestDir)
-	if err != nil {
-		return 0, nil, fmt.Errorf("pack: extract config: %w", err)
-	}
+func extractConfig(m *manifest.Manifest, prof *profile.Profile, roots map[string]string, dest string, limits Limits, secrets *secretCollector, jobs int) (int, []string, error) {
+	jobs = normalizeJobs(jobs)
 	withSessions := m.Header.Inputs.Options != nil && m.Header.Inputs.Options.WithSessions
 	byID := make(map[string]*profile.Entry, len(prof.Entries))
 	for _, e := range prof.Entries {
@@ -58,10 +57,12 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 		return 0, nil, err
 	}
 
-	written := make(map[string]bool)
+	// Preparation stays sequential so duplicate destinations resolve by
+	// manifest order; only the read/render/write half runs in parallel.
 	var warnings []string
-	count := 0
-	var total int64
+	var tasks []extractTask
+	written := make(map[string]bool)
+	planned := int64(0)
 	for i := range m.Units {
 		u := &m.Units[i]
 		if u.Kind != manifest.KindFile {
@@ -133,63 +134,135 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return count, warnings, err
+			return 0, warnings, err
 		}
-		// Large session files are streamed byte-for-byte: placeholder
-		// substitution would mean parsing or buffering them whole.
-		if sessions && info.Size > maxExtractFile {
+		written[outRel] = true
+		if info.Size > maxExtractFile {
+			// Large session files are streamed byte-for-byte: placeholder
+			// substitution would mean parsing or buffering them whole.
 			warnings = append(warnings, fmt.Sprintf(
 				"config: unit %s is a session file over %d bytes; copied raw without secret placeholders", u.ID, maxExtractFile))
-			if err := copyFile(src, target, 0o644); err != nil {
-				return count, warnings, err
-			}
-			written[outRel] = true
-			count++
-			total += info.Size
-			if total > limits.MaxTotalBytes {
-				return count, warnings, fmt.Errorf("%w: extracted config exceeds %d bytes", ErrLimitExceeded, limits.MaxTotalBytes)
-			}
-			continue
 		}
-		data, err := os.ReadFile(src)
+		tasks = append(tasks, extractTask{
+			u: u, entry: entry, extractor: extractor, redact: redact,
+			src: src, target: target, outRel: outRel, size: info.Size,
+		})
+		planned += info.Size
+	}
+	if planned > limits.MaxTotalBytes {
+		return 0, warnings, fmt.Errorf("%w: extracted config exceeds %d bytes", ErrLimitExceeded, limits.MaxTotalBytes)
+	}
+
+	count, total, errAt := runExtracts(tasks, secrets, prof, jobs)
+	for _, err := range errAt {
 		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("config: unit %s: %v", u.ID, err))
-			continue
+			return count, warnings, err
+		}
+	}
+	if total > limits.MaxTotalBytes {
+		return count, warnings, fmt.Errorf("%w: extracted config exceeds %d bytes", ErrLimitExceeded, limits.MaxTotalBytes)
+	}
+	sort.Strings(warnings)
+	return count, warnings, nil
+}
+
+type extractTask struct {
+	u         *manifest.Unit
+	entry     *profile.Entry
+	extractor string
+	redact    *profile.Redact
+	src       string
+	target    string
+	outRel    string
+	size      int64
+}
+
+// runExtracts performs the tasks, serial for small sets and otherwise with up
+// to jobs workers. Failures are collected by task index and reported in that
+// order; a worker stops early after the first hard failure.
+func runExtracts(tasks []extractTask, secrets *secretCollector, prof *profile.Profile, jobs int) (int, int64, []error) {
+	errAt := make([]error, len(tasks))
+	var count, total int64
+	var mu sync.Mutex
+	runOne := func(i int) error {
+		t := &tasks[i]
+		if t.size > maxExtractFile {
+			if err := copyFile(t.src, t.target, 0o644); err != nil {
+				return err
+			}
+			mu.Lock()
+			count++
+			total += t.size
+			mu.Unlock()
+			return nil
+		}
+		data, err := os.ReadFile(t.src)
+		if err != nil {
+			return fmt.Errorf("config: unit %s: %v", t.u.ID, err)
 		}
 		var out []byte
-		switch extractor {
+		switch t.extractor {
 		case profile.ExtractorRawRef:
 			out = data
 			if secrets != nil {
-				out = renderWithSecrets(data, u, entry, u.PartID, secrets, outRel, prof)
+				out = renderWithSecrets(data, t.u, t.entry, t.u.PartID, secrets, t.outRel, prof)
 			}
 		case profile.ExtractorTemplate:
 			if secrets != nil {
-				out = renderWithSecrets(data, u, entry, u.PartID, secrets, outRel, prof)
+				out = renderWithSecrets(data, t.u, t.entry, t.u.PartID, secrets, t.outRel, prof)
 			} else {
-				out = renderTemplate(data, redact)
+				out = renderTemplate(data, t.redact)
 			}
 		case profile.ExtractorKeysOnly:
 			out, err = renderKeysOnly(data)
 			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("config: unit %s: not JSON: %v", u.ID, err))
-				continue
+				return fmt.Errorf("config: unit %s: not JSON: %v", t.u.ID, err)
 			}
 		default:
-			continue
+			return nil
 		}
-		if err := os.WriteFile(target, out, 0o644); err != nil {
-			return count, warnings, err
+		if err := os.WriteFile(t.target, out, 0o644); err != nil {
+			return err
 		}
-		written[outRel] = true
+		mu.Lock()
 		count++
 		total += int64(len(out))
-		if total > limits.MaxTotalBytes {
-			return count, warnings, fmt.Errorf("%w: extracted config exceeds %d bytes", ErrLimitExceeded, limits.MaxTotalBytes)
-		}
+		mu.Unlock()
+		return nil
 	}
-	sort.Strings(warnings)
-	return count, warnings, nil
+	if jobs <= 1 || len(tasks) < parallelThreshold {
+		for i := range tasks {
+			if err := runOne(i); err != nil {
+				errAt[i] = err
+			}
+		}
+	} else {
+		if jobs > len(tasks) {
+			jobs = len(tasks)
+		}
+		var next atomic.Int64
+		var failed atomic.Bool
+		var wg sync.WaitGroup
+		for w := 0; w < jobs; w++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for !failed.Load() {
+					i := int(next.Add(1)) - 1
+					if i >= len(tasks) {
+						return
+					}
+					if err := runOne(i); err != nil {
+						errAt[i] = err
+						failed.Store(true)
+						return
+					}
+				}
+			}()
+		}
+		wg.Wait()
+	}
+	return int(count), total, errAt
 }
 
 func extractorFor(e *profile.Entry, partID string) (string, *profile.Redact) {

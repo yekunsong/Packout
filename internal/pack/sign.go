@@ -107,7 +107,7 @@ func CoverageSHA256(pkgDir string, limits Limits) (string, error) {
 	entries := make([]SIGEntry, 0, 32)
 	entries = append(entries, SIGEntry{Type: TypeFile, Path: SIGName, Mode: &mode, Size: &size, SHA256: &sha})
 
-	mentries, err := scanTree(mdir, limits, false)
+	mentries, err := scanTree(mdir, limits, false, 0)
 	if err != nil {
 		return "", err
 	}

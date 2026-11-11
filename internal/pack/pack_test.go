@@ -300,7 +300,7 @@ func TestExportRejectsInvalidManifest(t *testing.T) {
 func copyDir(t *testing.T, src string) string {
 	t.Helper()
 	dst := filepath.Join(t.TempDir(), "copy")
-	if _, err := copyTree(src, dst, Limits{}); err != nil {
+	if _, err := copyTree(src, dst, Limits{}, 0); err != nil {
 		t.Fatal(err)
 	}
 	// copyTree preserves the SIG; hardlinks in a tiny package are recreated

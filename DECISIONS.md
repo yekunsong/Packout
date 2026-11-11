@@ -439,3 +439,17 @@ P1 的安全门槛比 P0 高一个量级：P0 只读，P1 开始往磁盘写字�
 - 新 note 码 `content_not_read`：`max_bytes_inline: 0` 时一个字节都没读，不再误称 `binary_presence_only`。
 
 实测（服务器 32C/64G）：5k 文件 scan 3.47 s / export 7.22 s / 包 217.9 MB；50k 文件（2.3 GB）scan 25.39 s / RSS 359 MB / 50,000 条 transcript 逐条 / export 55.56 s / RSS 474 MB / 包 2.18 GB / sign+verify `ok`。e2e 恢复后 transcript 与 memory 逐字节一致。
+
+## D-049 哈希与复制并行化（perf）
+通过。新增全局 `--jobs N`（scan/export/verify）：默认 `min(GOMAXPROCS,16)`，上限即传入值（不另封顶），`--jobs 1` 与旧串行实现逐字节等价；待处理项 < 32 或 jobs=1 时一律串行，不付调度代价。每 worker 固定 64 KiB 缓冲；错误按输入项下标聚合，最先者胜出；worker 在首个失败后停止取新任务。
+
+确定性口径：manifest 正文（header/footer 之外、去 `scan_id` 的行）、SIG.json、包内文件内容汇总哈希在三档（1/8/32）完全一致。实现统一为"收集任务 → 有界并发 → 按原序落结果"：scan 的读取/指纹按批预取、按 key 顺序消费；pack 的 tree 哈希与复制先收集再并发，硬链接摘要最后按主条回填；manifest 编码、profile、restore 未改。
+
+落地范围：`internal/scan`（produce 预取池、walkGlob 并发、池化指纹缓冲）、`internal/pack`（tree 哈希/复制、extract 物化、VerifyOptions/Config 接线）、`cmd` 三个命令的 `--jobs` 与帮助。附带 `Export` 不再先 `manifest.Validate` 再 `ReadManifest` 各解析一遍，改为单次 `ReadManifest`（解析本身仍串行）。
+
+服务器 32C 实测（home50k，2.3 GB / 50,000 文件）：scan 1/8/32 = 21.66 / 12.55 / 9.33 s（1→32 = 2.32×；对旧 HEAD 25.39 s 为 2.72×）；export 1/8/32 = 35.31 / 20.81 / 19.47 s（1→32 = 1.81×；对旧 HEAD 56.43 s 为 2.90×）；verify 5k 包（未签名/签名两包）旧二进制 4.05–4.20 s，新 jobs32 2.02–2.03 s，无回归。三档 SIG/正文/包文件哈希全等，且 jobs1 与旧二进制产物全等。homeBig（10×100 MB、<32 项因此走串行）scan 0.16 s、export 5.68 s，SIG 与旧二进制一致，无劣化。
+
+偏差/限制：scan 的 walk 与 meta 构建已并行但 manifest JSON 解析仍串行，故 scan 32 档受解析与 GC 限制；verify 小包（5k/218 MB）并行收益约 1.4×，大包才会更明显；`install` 的 mergeStage 复制仍串行（--force 路径）。
+
+**行为变化（需知晓）**：`extractConfig` 的重读/渲染错误由"告警跳过"改为**中止导出**。并发下部分成功不再有意义——半个包比明确失败更难查。`keys-only` 遇到非 JSON 同样中止。
+**独立复核（主会话）**：远端全量 vet/test 与 `-race`（scan 129 s、pack 49 s）全绿；同源包 jobs1 与 jobs32 的 SIG 与文件哈希逐字节相等；跨两次独立 scan 的正文在归一化 scan_id/时间戳后相等；Windows build/vet 绿。

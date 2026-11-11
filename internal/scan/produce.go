@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"packout/internal/classify"
@@ -196,7 +198,7 @@ func (s *scanner) outsideRoot(p, target string) bool {
 }
 
 // produceFile emits the Unit for one winning candidate.
-func (s *scanner) produceFile(ctx context.Context, c candidate) {
+func (s *scanner) produceFile(ctx context.Context, c candidate, pf *prefetchResult) {
 	e, info := c.entry, c.info
 	if len(c.path) > maxPathBytes {
 		s.addNote(manifest.Note{Code: "path_too_long", Entry: e.ID, Detail: c.path})
@@ -302,18 +304,16 @@ func (s *scanner) produceFile(ctx context.Context, c candidate) {
 
 	// Analysis read: inline for secret/parts, structure for keys. Both are
 	// capped; the fingerprint hashes the whole member independently.
-	inline := s.cfg.Profile.EffectiveMaxBytesInline(e, nil)
-	structure := int64(0)
-	if len(e.Parts) > 0 || e.Extractor == profile.ExtractorKeysOnly || e.Churn == "high" {
-		structure = s.cfg.Profile.EffectiveMaxBytesStructure(e, nil)
-	}
-	need := inline
-	if structure > need {
-		need = structure
-	}
+	inline, structure, need, scope := s.readPlan(e, info)
 	var data []byte
 	var readErr error
-	if need > 0 {
+	if pf != nil {
+		// The parallel prefetch already did this read and counted the bytes.
+		data, readErr = pf.data, pf.readErr
+		if readErr == nil {
+			s.total[e.ID] += int64(len(data))
+		}
+	} else if need > 0 {
 		limit := need
 		if info.Size < limit {
 			limit = info.Size
@@ -340,13 +340,11 @@ func (s *scanner) produceFile(ctx context.Context, c candidate) {
 	}
 
 	// Fingerprint first; a read error here is a handled read_error.
-	scope := "full"
-	if info.Size > headTailLimit && info.Size > inline {
-		scope = "head-tail"
-	}
 	var fp manifest.Fingerprint
 	var err error
-	if len(files) > 1 {
+	if pf != nil {
+		fp, err = pf.fp, pf.fpErr
+	} else if len(files) > 1 {
 		fp, err = combinedFingerprint(files, scope)
 	} else {
 		fp, err = fingerprintFile(c.path, info.Size, scope)
@@ -380,6 +378,127 @@ func (s *scanner) produceFile(ctx context.Context, c candidate) {
 	}
 	s.applyKeysFingerprint(&u, e, data, structure)
 	s.units = append(s.units, u)
+}
+
+// prefetchBatchKeys and prefetchBatchBytes bound how much read data one
+// batch may hold in memory before produceKeys drains it.
+const (
+	prefetchBatchKeys  = 2048
+	prefetchBatchBytes = 64 << 20
+)
+
+// prefetchThreshold below which the pool is skipped (task card: < 32 items).
+const prefetchThreshold = 32
+
+type candRef struct {
+	key string
+	idx int
+}
+
+type prefetchTask struct {
+	ref  candRef
+	e    *profile.Entry
+	path string
+	info *fsx.Info
+}
+
+type prefetchResult struct {
+	data    []byte
+	readErr error
+	fp      manifest.Fingerprint
+	fpErr   error
+}
+
+// readPlan mirrors the read decisions of produceFile so the prefetch pass can
+// run ahead without changing what produceFile would do.
+func (s *scanner) readPlan(e *profile.Entry, info *fsx.Info) (inline, structure, need int64, scope string) {
+	inline = s.cfg.Profile.EffectiveMaxBytesInline(e, nil)
+	if len(e.Parts) > 0 || e.Extractor == profile.ExtractorKeysOnly || e.Churn == "high" {
+		structure = s.cfg.Profile.EffectiveMaxBytesStructure(e, nil)
+	}
+	need = inline
+	if structure > need {
+		need = structure
+	}
+	scope = "full"
+	if info.Size > headTailLimit && info.Size > inline {
+		scope = "head-tail"
+	}
+	return inline, structure, need, scope
+}
+
+// prefetchTasks runs the read+hash half of produceFile for a batch, bounded
+// by s.jobs. Results are keyed so produceKeys can consume them in input order.
+func (s *scanner) prefetchTasks(ctx context.Context, tasks []prefetchTask) map[candRef]*prefetchResult {
+	res := make(map[candRef]*prefetchResult, len(tasks))
+	if len(tasks) == 0 {
+		return res
+	}
+	if s.jobs <= 1 || len(tasks) < prefetchThreshold {
+		for i := range tasks {
+			res[tasks[i].ref] = s.runPrefetch(tasks[i])
+		}
+		return res
+	}
+	ch := make(chan prefetchTask)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	for w := 0; w < s.jobs; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for t := range ch {
+				r := s.runPrefetch(t)
+				mu.Lock()
+				res[t.ref] = r
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, t := range tasks {
+		select {
+		case ch <- t:
+		case <-ctx.Done():
+			close(ch)
+			wg.Wait()
+			return res
+		}
+	}
+	close(ch)
+	wg.Wait()
+	return res
+}
+
+// runPrefetch performs exactly the analysis read and fingerprint produceFile
+// would perform, including companion discovery.
+func (s *scanner) runPrefetch(t prefetchTask) *prefetchResult {
+	r := &prefetchResult{}
+	files := []companionFile{{suffix: "", path: t.path, info: t.info}}
+	for _, suffix := range t.e.Companions {
+		cp := t.path + suffix
+		ci, err := fsx.Lstat(cp)
+		if err != nil {
+			continue
+		}
+		files = append(files, companionFile{suffix: suffix, path: cp, info: ci})
+	}
+	_, _, need, scope := s.readPlan(t.e, t.info)
+	limit := need
+	if t.info.Size < limit {
+		limit = t.info.Size
+	}
+	if limit > 0 {
+		r.data, r.readErr = readPrefix(t.path, limit)
+	}
+	if r.readErr != nil {
+		return r
+	}
+	if len(files) > 1 {
+		r.fp, r.fpErr = combinedFingerprint(files, scope)
+	} else {
+		r.fp, r.fpErr = fingerprintFile(t.path, t.info.Size, scope)
+	}
+	return r
 }
 
 type companionFile struct {
@@ -458,7 +577,86 @@ func fingerprintFile(path string, size int64, scope string) (manifest.Fingerprin
 		return manifest.Fingerprint{}, err
 	}
 	defer f.Close()
-	return manifest.FingerprintFile(f, size, scope)
+	return fingerprintAt(f, size, scope)
+}
+
+// fpBufSize is the shared hash buffer size: one fixed 64 KiB block per worker.
+const fpBufSize = 64 << 10
+
+var fpBufPool = sync.Pool{New: func() any {
+	b := make([]byte, fpBufSize)
+	return &b
+}}
+
+// fingerprintAt is manifest.FingerprintFile with a pooled buffer instead of a
+// fresh allocation per file. The byte stream (and therefore the digest) is
+// identical: full hashes everything, head-tail hashes the first and last
+// HeadTailWindow bytes, and both read in fpBufSize chunks.
+func fingerprintAt(r io.ReaderAt, size int64, scope string) (manifest.Fingerprint, error) {
+	fp := manifest.Fingerprint{Algo: "sha256", Scope: scope}
+	if size < 0 {
+		return fp, fmt.Errorf("manifest: negative size %d", size)
+	}
+	h := sha256.New()
+	switch scope {
+	case "", "null":
+		fp.Scope = ""
+		return fp, nil
+	case "full":
+		if err := hashRangeAt(h, r, 0, size); err != nil {
+			return fp, err
+		}
+	case "head-tail":
+		if size <= 2*manifest.HeadTailWindow {
+			if err := hashRangeAt(h, r, 0, size); err != nil {
+				return fp, err
+			}
+		} else {
+			if err := hashRangeAt(h, r, 0, manifest.HeadTailWindow); err != nil {
+				return fp, err
+			}
+			if err := hashRangeAt(h, r, size-manifest.HeadTailWindow, manifest.HeadTailWindow); err != nil {
+				return fp, err
+			}
+		}
+	default:
+		return fp, fmt.Errorf("manifest: unsupported fingerprint scope %q", scope)
+	}
+	sum := hex.EncodeToString(h.Sum(nil))
+	fp.Value = &sum
+	return fp, nil
+}
+
+func hashRangeAt(h io.Writer, r io.ReaderAt, off, n int64) error {
+	bp := fpBufPool.Get().(*[]byte)
+	buf := *bp
+	defer fpBufPool.Put(bp)
+	remaining := n
+	pos := off
+	for remaining > 0 {
+		chunk := int64(len(buf))
+		if remaining < chunk {
+			chunk = remaining
+		}
+		read, err := r.ReadAt(buf[:chunk], pos)
+		if read > 0 {
+			if _, werr := h.Write(buf[:read]); werr != nil {
+				return werr
+			}
+			pos += int64(read)
+			remaining -= int64(read)
+		}
+		if err != nil {
+			if err == io.EOF && remaining == 0 {
+				break
+			}
+			return err
+		}
+		if read == 0 {
+			return io.ErrUnexpectedEOF
+		}
+	}
+	return nil
 }
 
 func (s *scanner) scanSecret(u *manifest.Unit, e *profile.Entry, path string, data []byte, inline int64) {
