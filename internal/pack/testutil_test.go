@@ -48,10 +48,20 @@ func testHeader(root string) manifest.Header {
 // writeManifest writes a complete, valid manifest directory at dir.
 func writeManifest(t *testing.T, dir string, root string, units ...manifest.Unit) {
 	t.Helper()
+	writeManifestOpts(t, dir, root, nil, units...)
+}
+
+// writeManifestOpts is writeManifest with a chance to adjust the header.
+func writeManifestOpts(t *testing.T, dir string, root string, mutate func(*manifest.Header), units ...manifest.Unit) {
+	t.Helper()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	w, err := manifest.NewWriter(dir, testHeader(root),
+	hdr := testHeader(root)
+	if mutate != nil {
+		mutate(&hdr)
+	}
+	w, err := manifest.NewWriter(dir, hdr,
 		manifest.WithClock(fixedClock{}),
 		manifest.WithSalt(manifest.FixedSalt("00112233445566778899aabbccddeeff")))
 	if err != nil {

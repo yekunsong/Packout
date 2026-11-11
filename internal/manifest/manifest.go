@@ -163,7 +163,7 @@ var signalSourceOrder = []string{
 var noteCodeOrder = []string{
 	"probe_unavailable", "permission_denied", "budget_exceeded", "profile_skipped",
 	"path_too_long", "read_error", "aggregated", "part_overlap", "part_missing",
-	"part_uncovered", "binary_presence_only", "companion_missing",
+	"part_uncovered", "binary_presence_only", "content_not_read", "companion_missing",
 	"target_duplicate", "side_effect_unexpected", "priority_tie",
 	"residual_deduplicated", "depth_truncated", "root_unresolved", "empty_glob",
 	"ads_stream",
@@ -247,6 +247,9 @@ type ProfileRef struct {
 // InputOptions holds scan options that affect the corpus.
 type InputOptions struct {
 	FollowSymlinks bool
+	// WithSessions marks a scan made with --with-sessions: session-flagged
+	// entries were emitted per file and export must keep their raw bytes.
+	WithSessions bool
 
 	Extra      map[string][]byte
 	extraOrder []string

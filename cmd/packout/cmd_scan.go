@@ -18,6 +18,7 @@ type scanConfig struct {
 	out            string
 	force          bool
 	followSymlinks bool
+	withSessions   bool
 	stableSalt     bool
 	json           bool
 	quiet          bool
@@ -81,6 +82,7 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 		GOOS:           runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		FollowSymlinks: cfg.followSymlinks,
+		WithSessions:   cfg.withSessions,
 		Tool:           "packout/" + version,
 		Salt:           salt,
 	}

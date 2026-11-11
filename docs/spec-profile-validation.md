@@ -91,6 +91,7 @@
 | `E-PRF-071` | error | `open_as` 值非法、`open_as: sqlite-ro` 用在非 `file`/`glob-group`，或 `side_effects: shm_created` 缺少 `open_as: sqlite-ro` |
 | `E-PRF-072` | error | `parts` 用在非 `file` 条目（parts 只对 `kind: file` 合法） |
 | `E-PRF-073` | error | `catch-all` 写了 `priority`（catch-all 只在残留遍求值、不参与声明遍竞争） |
+| `E-PRF-074` | error | `sessions: true` 用在非 `glob-group` 条目 |
 | `W-PRF-124` | warning | `catch-all` 未覆盖或被 `selftest_exempt` |
 | `W-PRF-131` | info | `opaque_content: true` 但 `secret: scan` 且预算为 0（仅存在性） |
 | `W-PRF-130` | info | L3/L5 条目但 extractor 为 `none` |

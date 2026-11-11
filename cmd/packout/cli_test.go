@@ -138,6 +138,23 @@ func TestProfileProbeJSONAndList(t *testing.T) {
 	}
 }
 
+func TestReportHintForWithSessions(t *testing.T) {
+	inst := fixtureTree(t)
+	work := t.TempDir()
+	scanOut := filepath.Join(work, "scan")
+	code, _, stderr := run(t, append([]string{"scan", "--out", scanOut, "--with-sessions", "--quiet"}, rootArgs(inst)...)...)
+	if code != exitOK {
+		t.Fatalf("scan: code=%d stderr=%q", code, stderr)
+	}
+	code, _, stderr = run(t, "report", "--manifest", scanOut, "--out", filepath.Join(work, "REPORT.html"), "--no-serve", "--quiet")
+	if code != exitOK {
+		t.Fatalf("report: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stderr, "--with-sessions") {
+		t.Fatalf("report stderr lacks the with-sessions hint: %q", stderr)
+	}
+}
+
 // TestFullFlow walks scan -> report -> export -> verify, the C24 acceptance
 // path (D-015 §14), and asserts the P0 conclusion word.
 func TestFullFlow(t *testing.T) {

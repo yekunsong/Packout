@@ -428,3 +428,14 @@ P1 的安全门槛比 P0 高一个量级：P0 只读，P1 开始往磁盘写字�
 7. **新增 `TestManifestOutsideOutIsIgnored`**：根目录里散落的 `manifest.index.json` 不得被读，只有 `--out` 下的才认。
 
 偏差接受记录：`source` 指向 manifest/包目录（本命令不写文件，没法给"全文文件"）；`--passphrase` 模式暂不适用于 MCP（restore_plan 只接 identity）——包用口令加密时 `restore_plan` 会返回解密失败，**写进已知限制**。
+
+## D-048 memory 与会话内容迁移
+接受（memory 默认；会话内容显式开关）。
+
+- **memory 现在是条目**：`projects-memory` 覆盖 `~/.claude/projects/**/memory/**`，L3、template、按项目 slug 派生。此前它整段掉进 residual，报告看不见、包也不带。
+- **会话内容要显式要**：`scan --with-sessions` 才逐文件出行，`export` 读 header 标记按原字节复制。默认保持 digest（只记哈希），因为一次会话导出是 GB 级。
+- 单文件上限 1 GiB，超出跳过并告警；>8 MiB 直接流式复制原文（不做占位符替换），≤8 MiB 仍走 `«secret:…»`。**这是明文打包**，已写进 README/SECURITY。
+- `sessions` 只允许 glob-group（E-PRF-074）；`options.with_sessions` 仅 true 时写出（E-MAN-071），既有 golden 头不变。
+- 新 note 码 `content_not_read`：`max_bytes_inline: 0` 时一个字节都没读，不再误称 `binary_presence_only`。
+
+实测（服务器 32C/64G）：5k 文件 scan 3.47 s / export 7.22 s / 包 217.9 MB；50k 文件（2.3 GB）scan 25.39 s / RSS 359 MB / 50,000 条 transcript 逐条 / export 55.56 s / RSS 474 MB / 包 2.18 GB / sign+verify `ok`。e2e 恢复后 transcript 与 memory 逐字节一致。

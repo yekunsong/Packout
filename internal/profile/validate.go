@@ -250,6 +250,7 @@ func (v *validator) entries() {
 		}
 
 		v.checkKindAndPath(e, subj)
+		v.checkSessions(e, subj)
 		v.checkRootRef(e, subj)
 		v.checkSignals(e, subj)
 		if e.Priority < -1000 || e.Priority > 1000 {
@@ -319,6 +320,17 @@ func (v *validator) checkKindAndPath(e *Entry, subj string) {
 		if e.PathSet || e.PathsSet {
 			v.errf("E-PRF-037", e.Pos, subj, "catch-all 不得写 path/paths")
 		}
+	}
+}
+
+// checkSessions limits the sessions marker to glob-group entries: only a
+// multi-file group can be exported per file under --with-sessions (E-PRF-074).
+func (v *validator) checkSessions(e *Entry, subj string) {
+	if !e.Sessions {
+		return
+	}
+	if e.Kind != KindGlobGroup {
+		v.errf("E-PRF-074", e.Pos, subj, "sessions 只允许用于 glob-group（实际 %s）", e.Kind)
 	}
 }
 

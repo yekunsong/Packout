@@ -221,6 +221,7 @@
       "layer": "L3",
       "secret": "scan",
       "extractor": "digest",
+      "sessions": true,
       "opaque_content": true,
       "max_bytes_inline": 0,
       "max_bytes_total": 2147483648,
@@ -249,6 +250,7 @@
       "layer": "L3",
       "secret": "scan",
       "extractor": "digest",
+      "sessions": true,
       "opaque_content": true,
       "max_bytes_inline": 0,
       "max_bytes_total": 536870912,
@@ -272,6 +274,7 @@
       "layer": "L3",
       "secret": "scan",
       "extractor": "digest",
+      "sessions": true,
       "max_bytes_inline": 65536,
       "path_semantics": "machine_derived",
       "derived_from": "repo_slug",
@@ -280,6 +283,28 @@
         {
           "src": "observed_behavior",
           "note": "子代理会话记录，与主 transcript 同属会话状态"
+        }
+      ]
+    },
+    {
+      "id": "projects-memory",
+      "kind": "glob-group",
+      "root": "home",
+      "paths": [
+        ".claude/projects/**/memory/**"
+      ],
+      "layer": "L3",
+      "secret": "scan",
+      "extractor": "template",
+      "priority": 15,
+      "path_semantics": "machine_derived",
+      "derived_from": "repo_slug",
+      "max_bytes_inline": 262144,
+      "max_bytes_total": 268435456,
+      "signals": [
+        {
+          "src": "observed_behavior",
+          "note": "Claude Code 记忆文件，按项目 slug 存放，是唯一不可再生的长期记忆"
         }
       ]
     },
@@ -1164,6 +1189,13 @@
         "root": "home",
         "match": ".claude/projects/**/subagents/**/*.jsonl",
         "layer": "L3"
+      },
+      {
+        "entry": "projects-memory",
+        "root": "home",
+        "match": ".claude/projects/D--demo/memory/MEMORY.md",
+        "layer": "L3",
+        "secret": "scan"
       },
       {
         "entry": "history",

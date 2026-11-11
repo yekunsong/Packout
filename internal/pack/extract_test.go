@@ -137,3 +137,83 @@ func TestExtractRejectsSourceOutsideRoot(t *testing.T) {
 		t.Fatal("outside-root unit exported")
 	}
 }
+
+// sessionsSetup builds a manifest with a sessions-flagged glob-group and three
+// files: small, over the 8 MiB inline ceiling, and over the 1 GiB session cap.
+func sessionsSetup(t *testing.T, withSessions bool) (src, root string) {
+	t.Helper()
+	base := t.TempDir()
+	root = filepath.Join(base, "root")
+	src = filepath.Join(base, "scan")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(root, "small.jsonl"), "tiny transcript\n")
+	writeFile(t, filepath.Join(root, "big.jsonl"), strings.Repeat("x", (9<<20)+7))
+	writeFile(t, filepath.Join(root, "huge.jsonl"), "")
+	if err := os.Truncate(filepath.Join(root, "huge.jsonl"), (1<<30)+1); err != nil {
+		t.Fatal(err)
+	}
+	var us []manifest.Unit
+	for _, name := range []string{"small.jsonl", "big.jsonl", "huge.jsonl"} {
+		us = append(us, fileUnit(root, "sessions", filepath.Join(root, name)))
+	}
+	writeManifestOpts(t, filepath.Join(src, ManifestDirName), root, func(h *manifest.Header) {
+		h.Inputs.Options.WithSessions = withSessions
+	}, us...)
+	return src, root
+}
+
+func sessionsProfile() *profile.Profile {
+	return &profile.Profile{Name: "p", Entries: []*profile.Entry{{
+		ID: "sessions", Kind: profile.KindGlobGroup, Root: "home", Paths: []string{"*.jsonl"},
+		Extractor: profile.ExtractorDigest, Secret: profile.SecretScan, Sessions: true,
+	}}}
+}
+
+func TestExtractSessionsKeepsRawBytes(t *testing.T) {
+	src, root := sessionsSetup(t, true)
+	out := filepath.Join(t.TempDir(), "pkg")
+	res := mustExport(t, Config{
+		SourceDir: src, OutDir: out, Profile: sessionsProfile(),
+		Roots:  map[string]string{"home": root},
+		Limits: Limits{MaxExpansionRatio: 1e9},
+	})
+
+	small, err := os.ReadFile(filepath.Join(out, ConfigDirName, "home", "small.jsonl"))
+	if err != nil || string(small) != "tiny transcript\n" {
+		t.Fatalf("small session file not copied raw: %q %v", small, err)
+	}
+	big, err := os.ReadFile(filepath.Join(out, ConfigDirName, "home", "big.jsonl"))
+	if err != nil || len(big) != (9<<20)+7 {
+		t.Fatalf("big session file not streamed raw: %d %v", len(big), err)
+	}
+	if fi, err := os.Lstat(filepath.Join(out, ConfigDirName, "home", "huge.jsonl")); !os.IsNotExist(err) || fi != nil {
+		t.Fatal("session file over 1 GiB was not skipped")
+	}
+	joined := strings.Join(res.Warnings, "\n")
+	if !strings.Contains(joined, "exceeds 1073741824 bytes (skipped)") {
+		t.Fatalf("missing oversized warning: %v", res.Warnings)
+	}
+	if !strings.Contains(joined, "copied raw without secret placeholders") {
+		t.Fatalf("missing streamed-copy warning: %v", res.Warnings)
+	}
+}
+
+func TestExtractSessionsOffStillDigestOnly(t *testing.T) {
+	src, root := sessionsSetup(t, false)
+	out := filepath.Join(t.TempDir(), "pkg")
+	res := mustExport(t, Config{
+		SourceDir: src, OutDir: out, Profile: sessionsProfile(),
+		Roots:  map[string]string{"home": root},
+		Limits: Limits{MaxExpansionRatio: 1e9},
+	})
+	if _, err := os.Lstat(filepath.Join(out, ConfigDirName, "home", "small.jsonl")); !os.IsNotExist(err) {
+		t.Fatal("session file exported without --with-sessions")
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "copied raw") {
+			t.Fatalf("unexpected streaming warning when sessions off: %v", res.Warnings)
+		}
+	}
+}

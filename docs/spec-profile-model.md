@@ -297,6 +297,7 @@ packout scan --root repo=D:\Study\Chatrix --root repo=D:\Study\Chatrix\Chatrix
 | `case_sensitive` | 否 | bool | 覆盖卷探测 |
 | `unique_within` | 否 | enum | 目前只接受 `root`；弃用 `l3_if_unique`，见 §5.3 |
 | `aggregate_above` | 否 | int | 命中数超过该值时改为聚合 Unit，默认 10000（暂定） |
+| `sessions` | 否 | bool | 默认 false；标记该 `glob-group` 属于会话内容：`scan --with-sessions` 时逐文件出行，`export` 按 `raw-ref` 保留原字节，见 §5.6。仅 `glob-group` 可用（`E-PRF-074`） |
 | `export_group` | 否 | string | 导出到 `config/` 的子目录名 |
 | `notes` | 否 | string | 条目说明 |
 
@@ -394,7 +395,7 @@ part 是 entry **内部**的分层，不参与 entry 之间的优先级：先按
 
 - `relogin` 必须搭配 `L5`（`E-PRF-040`）。
 - `restore` 必须搭配 `L3`（`E-PRF-041`）；若条目同时含 device-bound 内容，可在 `notes` 说明并改用 `scan`。
-- `scan` 必须 `max_bytes_inline > 0`，除非条目声明 `opaque_content: true`（`E-PRF-042`）。二进制的 `scan` 只记存在性与大小，不解析内容、`hits` 恒为空；Unit 加 `risk_flags: ["opaque_content", "content_partial"]`，并记 `binary_presence_only` note。若同时给了正数 `max_bytes_inline`，则只对头部做前缀/正则检测，仍不跑熵判定。
+- `scan` 必须 `max_bytes_inline > 0`，除非条目声明 `opaque_content: true`（`E-PRF-042`）。二进制的 `scan` 只记存在性与大小，不解析内容、`hits` 恒为空；Unit 加 `risk_flags: ["opaque_content", "content_partial"]`，并记 `binary_presence_only` note；声明了 `opaque_content` 且 `max_bytes_inline: 0`（一个字节都不读）时改记 `content_not_read`。若同时给了正数 `max_bytes_inline`，则只对头部做前缀/正则检测，仍不跑熵判定。
 - `opaque_content: true` 表示不解析内容（真二进制、或只按流式哈希处理的大文本）；用 `template` 时按字节解码失败即退化为 `digest` 并记 note。`binary` 是 v2 冻结前的旧名，读入时映射为 `opaque_content` 并记 `W-PRF-101`（`D-021` 第 3 条）。
 - `secret != none` 的条目 `extractor` 不得为 `raw-ref` 且不带脱敏（`E-PRF-043`）。
 - `catch-all` 的 `secret` 缺省 `none`；要覆盖残留中的凭据必须显式写 `scan` 并给正数预算。
@@ -453,6 +454,8 @@ URI scheme 与探测方式的对应固定为：`keychain:`→`keychain`、`wincr
   }
 }
 ```
+
+`sessions: true` 只标记"这是会话内容"，不改变扫描期分类：manifest 仍按条目自己的 `extractor` 记结论。它影响两个下游行为，且只在扫描以 `--with-sessions` 进行时生效（header `inputs.options.with_sessions` 为 true 时）：扫描不因 `max_bytes_total`/`aggregate_above` 聚合这些条目，逐文件出行（`max_bytes_total` 退化为行数上限）；导出把这些条目的内容按 `raw-ref` 原字节保留。未开启时行为与普通条目完全相同。
 
 `redact` 只对 `template` / `keys-only` 生效；`digest` 天然无内容。未声明 `redact` 的 `template` 视为"原样复制但去缩进"，校验器给出警告（`W-PRF-110`）。
 

@@ -74,6 +74,7 @@ header 必填：`manifest_version`、`scan_id`（ULID）、`scan_segment`、`sta
 `scan_segment` 为 `{parent, segment_seq, first_shard}`：全新扫描为 `{null, 0, 1}`；续扫段的 `parent` 是父段 `scan_id`，`segment_seq` 递增，`first_shard` 必须等于父段已封分片数 + 1（`E-MAN-042`）。
 `path_fold_version` 固定写 `x/text` 模块版本与 Unicode 版本（见 §6.3），用于判断 `path_key` 是否可直接比较。
 `inputs.secret_salt_mode` 取 `random` / `stable`，见 §9 第 3 条。
+`inputs.options` 记录影响语料的扫描选项：`follow_symlinks` 恒写；`with_sessions` 为可选布尔，仅在 `scan --with-sessions` 时以 `true` 出现。为 `true` 时，profile 中 `sessions: true` 的条目已逐文件出行，`export` 必须把它们的 `extractor` 当 `raw-ref` 处理并保留原字节；缺省按 `false`。
 
 ### 3.2 note
 
@@ -81,7 +82,7 @@ header 必填：`manifest_version`、`scan_id`（ULID）、`scan_segment`、`sta
 {"type":"note","scan_id":"01JQ…","code":"probe_unavailable","profile":"claude-code","entry":"oauth-credential-store","detail":"wincred 探测返回 ERROR_NOT_FOUND"}
 ```
 
-`note` 不是结论，不参与统计。`code` 取固定枚举：`probe_unavailable`、`permission_denied`、`budget_exceeded`、`profile_skipped`、`path_too_long`、`read_error`、`aggregated`、`part_overlap`、`part_missing`、`part_uncovered`、`binary_presence_only`、`companion_missing`、`target_duplicate`、`side_effect_unexpected`、`priority_tie`、`residual_deduplicated`、`depth_truncated`、`root_unresolved`、`empty_glob`、`ads_stream`。
+`note` 不是结论，不参与统计。`code` 取固定枚举：`probe_unavailable`、`permission_denied`、`budget_exceeded`、`profile_skipped`、`path_too_long`、`read_error`、`aggregated`、`part_overlap`、`part_missing`、`part_uncovered`、`binary_presence_only`、`content_not_read`、`companion_missing`、`target_duplicate`、`side_effect_unexpected`、`priority_tie`、`residual_deduplicated`、`depth_truncated`、`root_unresolved`、`empty_glob`、`ads_stream`。
 
 `note` 可带 `part_id`、`companions` 与 `side_effects` 等上下文字段，用于把说明挂到具体结论上；字段语义同 §4.1。另有两个固定语义：空 glob（C11）必须留 `empty_glob` note；NTFS ADS 在 P0 只留 `ads_stream` note，不独立成 Unit（`D-015` 第 6、9 条）。
 
@@ -552,6 +553,7 @@ manifest 只记**位置与指纹**，`secrets.age` 只装**密文**。硬规则�
 | `E-MAN-068` | error | catch-all Unit 缺少恰好一条引擎注入的 `residual` signal（`src` 为 `filesystem_stat` 且 note 非空），或注入了多条 |
 | `E-MAN-069` | error | `origin` 出现在 `literal` Unit 上、`origin_path_key` 与 `origin` 折叠不一致，或两者一有一无 |
 | `E-MAN-070` | error | `open_as` 值非法，或 `side_effects: ["shm_created"]` 而 `open_as` 不是 `sqlite-ro` |
+| `E-MAN-071` | error | `inputs.options.with_sessions` 存在但不是布尔值 |
 | `E-MAN-062` | error | `layer: L0` 且 `needed_by` 非空但缺 `deletion_cost` |
 | `E-MAN-063` | error | `companions` 中的后缀也作为独立 Unit 出现，或主文件缺失却有伴生 Unit |
 | `E-MAN-064` | error | catch-all Unit 的 `confidence != 0.500` |

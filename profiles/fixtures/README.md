@@ -64,6 +64,7 @@ profiles/
 | projects-transcripts | `home/.claude/projects/D--demo/session-1.jsonl` | **machine_derived**（repo_slug） |
 | projects-tool-results | `home/.claude/projects/D--demo/tool-results/blob.pdf` | 物化器生成（4096 B） |
 | projects-subagents | `home/.claude/projects/D--demo/subagents/agent-1.jsonl` | 优先级 20，压过 transcripts |
+| projects-memory | `home/.claude/projects/D--demo/memory/MEMORY.md` + 同目录 `memory/notes/x.md` | 优先级 15，覆盖 glob 的两种深度 |
 | history | `home/.claude/history.jsonl` | |
 | todos | `home/.claude/todos/todo-1.json` | dir + aggregate |
 | shell-snapshots | `home/.claude/shell-snapshots/snapshot-1.sh` | dir + aggregate |

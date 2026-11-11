@@ -397,6 +397,11 @@ func (s *scanner) selectAndProduce(ctx context.Context, matches map[string]int) 
 		if e.AggregateAbove != nil {
 			above = *e.AggregateAbove
 		}
+		// A sessions entry under --with-sessions always goes per file: the
+		// rows are the product, aggregation would lose them.
+		if s.perFileSessions(e) {
+			continue
+		}
 		if s.cfg.Profile.EffectiveExpand(e) == "aggregate" || counts[e.ID] > above {
 			agg[e.ID] = true
 		}
@@ -451,6 +456,12 @@ func (s *scanner) selectAndProduce(ctx context.Context, matches map[string]int) 
 		}
 		delete(s.hits, key)
 	}
+}
+
+// perFileSessions reports whether e must be emitted per file: it is flagged
+// sessions in the profile and the scan runs with --with-sessions.
+func (s *scanner) perFileSessions(e *profile.Entry) bool {
+	return s.cfg.WithSessions && e.Sessions
 }
 
 func (s *scanner) aggregateBase(c candidate) string {

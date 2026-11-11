@@ -20,6 +20,11 @@ import (
 // normally trims them first).
 const maxExtractFile = 8 << 20
 
+// maxExtractSessionFile is the per-file ceiling for entries flagged sessions
+// when the manifest says the scan ran with --with-sessions. Session
+// transcripts and tool results are routinely far larger than config files.
+const maxExtractSessionFile = 1 << 30
+
 // extractConfig materialises config/ from the manifest's units.
 //
 // Only de-secreted extracts are written: raw-ref copies bytes unchanged,
@@ -32,6 +37,7 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 	if err != nil {
 		return 0, nil, fmt.Errorf("pack: extract config: %w", err)
 	}
+	withSessions := m.Header.Inputs.Options != nil && m.Header.Inputs.Options.WithSessions
 	byID := make(map[string]*profile.Entry, len(prof.Entries))
 	for _, e := range prof.Entries {
 		byID[e.ID] = e
@@ -66,6 +72,12 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 			continue
 		}
 		extractor, redact := extractorFor(entry, u.PartID)
+		// A --with-sessions scan promises the session bytes; digest entries
+		// are exported as raw-ref regardless of their declared extractor.
+		sessions := withSessions && entry.Sessions
+		if sessions {
+			extractor = profile.ExtractorRawRef
+		}
 		switch extractor {
 		case profile.ExtractorNone, profile.ExtractorDigest, "":
 			continue
@@ -98,13 +110,12 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 			warnings = append(warnings, fmt.Sprintf("config: unit %s is not a regular file (symlinks are not extracted)", u.ID))
 			continue
 		}
-		if info.Size > maxExtractFile {
-			warnings = append(warnings, fmt.Sprintf("config: unit %s exceeds %d bytes", u.ID, maxExtractFile))
-			continue
+		fileLimit := int64(maxExtractFile)
+		if sessions {
+			fileLimit = maxExtractSessionFile
 		}
-		data, err := os.ReadFile(src)
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("config: unit %s: %v", u.ID, err))
+		if info.Size > fileLimit {
+			warnings = append(warnings, fmt.Sprintf("config: unit %s exceeds %d bytes (skipped)", u.ID, fileLimit))
 			continue
 		}
 		outRel := rootName + "/" + rel
@@ -114,6 +125,35 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 		}
 		if written[outRel] {
 			warnings = append(warnings, fmt.Sprintf("config: duplicate destination %q (unit %s skipped)", outRel, u.ID))
+			continue
+		}
+		target, err := safeJoin(dest, outRel)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("config: unit %s: %v", u.ID, err))
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			return count, warnings, err
+		}
+		// Large session files are streamed byte-for-byte: placeholder
+		// substitution would mean parsing or buffering them whole.
+		if sessions && info.Size > maxExtractFile {
+			warnings = append(warnings, fmt.Sprintf(
+				"config: unit %s is a session file over %d bytes; copied raw without secret placeholders", u.ID, maxExtractFile))
+			if err := copyFile(src, target, 0o644); err != nil {
+				return count, warnings, err
+			}
+			written[outRel] = true
+			count++
+			total += info.Size
+			if total > limits.MaxTotalBytes {
+				return count, warnings, fmt.Errorf("%w: extracted config exceeds %d bytes", ErrLimitExceeded, limits.MaxTotalBytes)
+			}
+			continue
+		}
+		data, err := os.ReadFile(src)
+		if err != nil {
+			warnings = append(warnings, fmt.Sprintf("config: unit %s: %v", u.ID, err))
 			continue
 		}
 		var out []byte
@@ -137,14 +177,6 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 			}
 		default:
 			continue
-		}
-		target, err := safeJoin(dest, outRel)
-		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("config: unit %s: %v", u.ID, err))
-			continue
-		}
-		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return count, warnings, err
 		}
 		if err := os.WriteFile(target, out, 0o644); err != nil {
 			return count, warnings, err

@@ -243,6 +243,16 @@ func (s *scanner) produceFile(ctx context.Context, c candidate) {
 
 	total := s.cfg.Profile.EffectiveMaxBytesTotal(e)
 	if total > 0 && s.total[e.ID] >= total {
+		if s.perFileSessions(e) {
+			// Sessions mode: the budget only caps how many rows we emit, so
+			// the exhausted file gets no row of its own (it stays covered).
+			if !s.budgetNoted[e.ID] {
+				s.budgetNoted[e.ID] = true
+				s.addNote(manifest.Note{Code: "budget_exceeded", Entry: e.ID,
+					Detail: "条目 max_bytes_total 已耗尽，后续会话文件不再逐条出行"})
+			}
+			return
+		}
 		u.Fingerprint = &manifest.Fingerprint{Algo: "sha256", Scope: ""}
 		u.RiskFlags = appendFlag(u.RiskFlags, "aggregated")
 		u.RiskFlags = appendFlag(u.RiskFlags, "oversized")
@@ -359,8 +369,11 @@ func (s *scanner) produceFile(ctx context.Context, c candidate) {
 		return
 	}
 
-	if u.OpaqueContent && e.Secret == profile.SecretScan {
-		s.addNote(manifest.Note{Code: "binary_presence_only", Entry: e.ID, Detail: c.path})
+	// opaque_content with max_bytes_inline 0 reads no bytes at all: say so
+	// accurately instead of calling every such file binary (text transcripts
+	// are flagged opaque too). Real NUL detection already noted above.
+	if u.OpaqueContent && e.Secret == profile.SecretScan && len(data) == 0 {
+		s.addNote(manifest.Note{Code: "content_not_read", Entry: e.ID, Detail: c.path})
 	}
 	if s.shouldScanSecret(e, u.OpaqueContent) {
 		s.scanSecret(&u, e, c.path, data, inline)

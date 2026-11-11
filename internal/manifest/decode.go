@@ -523,7 +523,12 @@ func decodeInputs(raw json.RawMessage) (Inputs, error) {
 				return in, err
 			}
 		}
-		opt.Extra, opt.extraOrder = unknowns(om, oorder, map[string]bool{"follow_symlinks": true})
+		if r, ok := om["with_sessions"]; ok {
+			if opt.WithSessions, err = decodeBool(r); err != nil {
+				return in, fmt.Errorf("E-MAN-071: inputs.options.with_sessions must be a boolean: %w", err)
+			}
+		}
+		opt.Extra, opt.extraOrder = unknowns(om, oorder, map[string]bool{"follow_symlinks": true, "with_sessions": true})
 		in.Options = opt
 	}
 	in.Extra, in.extraOrder = unknowns(m, order, map[string]bool{

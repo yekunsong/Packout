@@ -187,6 +187,7 @@ type Entry struct {
 	SideEffects    []string
 	OpenAs         string
 	OpaqueContent  bool
+	Sessions       bool
 
 	MaxBytesInline    *int64
 	MaxBytesStructure *int64

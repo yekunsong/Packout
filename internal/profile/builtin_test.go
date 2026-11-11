@@ -73,6 +73,62 @@ func TestBuiltinSelfTest(t *testing.T) {
 	}
 }
 
+func TestBuiltinSessionEntries(t *testing.T) {
+	p, err := Builtin("claude-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"projects-transcripts": true, "projects-tool-results": true, "projects-subagents": true,
+	}
+	for _, e := range p.Entries {
+		if want[e.ID] {
+			delete(want, e.ID)
+			if !e.Sessions {
+				t.Errorf("%s: sessions = false, want true", e.ID)
+			}
+			if e.Kind != KindGlobGroup {
+				t.Errorf("%s: kind = %s, want glob-group", e.ID, e.Kind)
+			}
+			if e.Root != "home" {
+				t.Errorf("%s: root = %s, want home", e.ID, e.Root)
+			}
+			continue
+		}
+		if e.Sessions {
+			t.Errorf("unexpected sessions marker on %s", e.ID)
+		}
+	}
+	for id := range want {
+		t.Errorf("entry %s missing from claude-code", id)
+	}
+
+	mem := findEntry(p, "projects-memory")
+	if mem == nil {
+		t.Fatal("projects-memory entry missing")
+	}
+	if mem.Kind != KindGlobGroup || mem.Root != "home" || mem.Layer != LayerL3 ||
+		mem.Secret != SecretScan || mem.Extractor != ExtractorTemplate || mem.Priority != 15 ||
+		mem.PathSemantics != PathMachineDerived || mem.DerivedFrom != DerivedRepoSlug ||
+		mem.MaxBytesInline == nil || *mem.MaxBytesInline != 262144 ||
+		mem.MaxBytesTotal == nil || *mem.MaxBytesTotal != 268435456 ||
+		len(mem.Paths) != 1 || mem.Paths[0] != ".claude/projects/**/memory/**" {
+		t.Fatalf("projects-memory entry drifted: %+v", mem)
+	}
+	if mem.Sessions {
+		t.Error("projects-memory must not be a sessions entry")
+	}
+}
+
+func findEntry(p *Profile, id string) *Entry {
+	for _, e := range p.Entries {
+		if e.ID == id {
+			return e
+		}
+	}
+	return nil
+}
+
 func TestBuiltinUnknown(t *testing.T) {
 	if _, err := Builtin("nope"); err == nil {
 		t.Fatal("expected error for unknown built-in")
@@ -480,6 +536,7 @@ func TestValidationErrorCodes(t *testing.T) {
 			m["entries"] = []any{e}
 			selftestOf(m)["expect"].([]any)[0].(map[string]any)["entry"] = "ca"
 		}},
+		{"E-PRF-074", "E-PRF-074", func(m map[string]any) { entryOf(m)["sessions"] = true }},
 	}
 	for _, tc := range cases {
 		tc := tc

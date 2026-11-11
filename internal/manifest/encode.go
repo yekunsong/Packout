@@ -527,6 +527,10 @@ func EncodeHeader(h *Header) []byte {
 		j.beginObject()
 		j.field("follow_symlinks")
 		j.boolean(h.Inputs.Options.FollowSymlinks)
+		if h.Inputs.Options.WithSessions {
+			j.field("with_sessions")
+			j.boolean(true)
+		}
 		writeExtra(&j, h.Inputs.Options.Extra, h.Inputs.Options.extraOrder)
 		j.endObject()
 	}

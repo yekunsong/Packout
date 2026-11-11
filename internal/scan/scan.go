@@ -39,9 +39,13 @@ type Config struct {
 	Salt  manifest.SaltSource
 
 	FollowSymlinks bool
-	ShardUnits     int
-	ShardBytes     int64
-	Tool           string
+	// WithSessions emits profile entries flagged sessions: true per file
+	// instead of by max_bytes_total/aggregate_above, and records the marker
+	// in the header so export keeps their raw bytes.
+	WithSessions bool
+	ShardUnits   int
+	ShardBytes   int64
+	Tool         string
 }
 
 // RootBinding is one --root role=PATH instance.
@@ -109,6 +113,8 @@ type scanner struct {
 	ignore    map[string][]gitRule
 	gitSeen   map[string]bool
 	signals   map[*profile.Entry][]manifest.Signal
+	// budgetNoted dedupes the one-per-entry budget note in sessions mode.
+	budgetNoted map[string]bool
 
 	// results of declaration pass, keyed by folded path.
 	hits map[string][]candidate
@@ -133,16 +139,17 @@ func Run(ctx context.Context, cfg Config) (res *Result, err error) {
 		return nil, fmt.Errorf("%w: output directory is required", ErrConfig)
 	}
 	s := &scanner{
-		cfg:      cfg,
-		goos:     cfg.GOOS,
-		covered:  make(map[string]bool),
-		total:    make(map[string]int64),
-		hits:     make(map[string][]candidate),
-		churn:    make(map[string]manifest.Fingerprint),
-		ignore:   make(map[string][]gitRule),
-		gitSeen:  make(map[string]bool),
-		signals:  make(map[*profile.Entry][]manifest.Signal),
-		complete: true,
+		cfg:         cfg,
+		goos:        cfg.GOOS,
+		covered:     make(map[string]bool),
+		total:       make(map[string]int64),
+		hits:        make(map[string][]candidate),
+		churn:       make(map[string]manifest.Fingerprint),
+		ignore:      make(map[string][]gitRule),
+		gitSeen:     make(map[string]bool),
+		signals:     make(map[*profile.Entry][]manifest.Signal),
+		budgetNoted: make(map[string]bool),
+		complete:    true,
 	}
 	if s.goos == "" {
 		s.goos = runtime.GOOS
@@ -292,7 +299,10 @@ func (s *scanner) header() manifest.Header {
 				Name: s.cfg.Profile.Name, Version: profileVersion(s.cfg.Profile),
 				SHA256: profileDigest(s.cfg.Profile),
 			}},
-			Options: &manifest.InputOptions{FollowSymlinks: s.cfg.FollowSymlinks},
+			Options: &manifest.InputOptions{
+				FollowSymlinks: s.cfg.FollowSymlinks,
+				WithSessions:   s.cfg.WithSessions,
+			},
 		},
 		ShardUnits: s.cfg.ShardUnits,
 		ShardBytes: s.cfg.ShardBytes,

@@ -577,7 +577,7 @@ var entryKnown = map[string]bool{
 	"max_bytes_total": true, "expand": true, "max_depth": true,
 	"exclude": true, "follow_symlinks": true, "dedupe_targets": true,
 	"case_sensitive": true, "unique_within": true, "aggregate_above": true,
-	"export_group": true, "notes": true, "redact": true,
+	"export_group": true, "sessions": true, "notes": true, "redact": true,
 	"selftest_exempt": true, "scope": true, "under": true,
 }
 
@@ -730,6 +730,11 @@ func decodeEntry(d *decoder, v *hujson.Value, index int) *Entry {
 		if b, ok := d.boolean(fv, subj, "E-PRF-063"); ok {
 			e.OpaqueContent = b
 			d.warnf("W-PRF-101", fv, subj, "binary 是旧名，已映射为 opaque_content")
+		}
+	}
+	if fv, ok := m["sessions"]; ok {
+		if b, ok := d.boolean(fv, subj, "E-PRF-063"); ok {
+			e.Sessions = b
 		}
 	}
 	if fv, ok := m["max_bytes_inline"]; ok {

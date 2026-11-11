@@ -118,6 +118,7 @@ func parseScan(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs.StringVar(&cfg.out, "out", "", "输出目录（必填，无默认值）")
 	fs.BoolVar(&cfg.force, "force", false, "覆盖已存在且非空的 --out")
 	fs.BoolVar(&cfg.followSymlinks, "follow-symlinks", false, "跟随符号链接/联接点")
+	fs.BoolVar(&cfg.withSessions, "with-sessions", false, "逐文件导出会话 transcript/tool-results/subagents 原字节（包会大很多）")
 	fs.BoolVar(&cfg.stableSalt, "stable-salt", false, "使用 ~/.config/packout/salt 的持久 salt")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
 	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
@@ -336,6 +337,7 @@ func scanHelp(ref string) string {
   --root role=PATH     可重复；同一 role 多次出现自动编号 role#2
   --force              覆盖已存在且非空的 --out
   --follow-symlinks    跟随符号链接/联接点
+  --with-sessions      会话内容逐文件出行，导出保留原字节（包会大很多）
   --stable-salt        使用 ~/.config/packout/salt 的持久 salt
   --json               stdout 输出可解析的 JSON 摘要
   --quiet              只输出错误

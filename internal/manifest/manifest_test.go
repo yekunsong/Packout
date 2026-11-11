@@ -356,3 +356,40 @@ func TestSectionNumbersInDocComment(t *testing.T) {
 		t.Fatalf("unexpected test time format: %s", testStart.Format(time.RFC3339Nano))
 	}
 }
+
+func TestHeaderWithSessionsRoundTrip(t *testing.T) {
+	hdr := newTestHeader(0)
+	hdr.Inputs.Options = &InputOptions{WithSessions: true}
+	out := EncodeHeader(&hdr)
+	if !bytes.Contains(out, []byte(`"with_sessions":true`)) {
+		t.Fatalf("with_sessions not encoded: %s", out)
+	}
+	var back Header
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Inputs.Options == nil || !back.Inputs.Options.WithSessions {
+		t.Fatalf("with_sessions lost on decode: %+v", back.Inputs)
+	}
+	if _, ok := back.Inputs.Options.Extra["with_sessions"]; ok {
+		t.Fatal("with_sessions landed in Extra")
+	}
+
+	// A plain scan stays byte-compatible: the field is only written when true.
+	hdr.Inputs.Options.WithSessions = false
+	if bytes.Contains(EncodeHeader(&hdr), []byte("with_sessions")) {
+		t.Fatal("with_sessions written for a plain scan")
+	}
+}
+
+func TestHeaderWithSessionsMustBeBool(t *testing.T) {
+	hdr := newTestHeader(0)
+	raw := string(EncodeHeader(&hdr))
+	raw = strings.Replace(raw, `"options":{"follow_symlinks":false}`,
+		`"options":{"follow_symlinks":false,"with_sessions":"yes"}`, 1)
+	var back Header
+	err := json.Unmarshal([]byte(raw), &back)
+	if err == nil || !strings.Contains(err.Error(), "E-MAN-071") {
+		t.Fatalf("err = %v, want E-MAN-071", err)
+	}
+}

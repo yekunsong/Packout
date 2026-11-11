@@ -60,6 +60,9 @@ func runReport(ctx context.Context, cfg reportConfig, stdout, stderr io.Writer) 
 	if err != nil {
 		return r.fail(exitUsage, "manifest %s 不可用: %v", dir, err)
 	}
+	if m.Header.Inputs.Options != nil && m.Header.Inputs.Options.WithSessions {
+		r.warn("packout: 该扫描启用了 --with-sessions：导出包会包含会话原文，体积可能大很多（单文件上限 1 GiB）")
+	}
 
 	opts := report.Options{
 		IncludeSignals: !cfg.noSignals,
