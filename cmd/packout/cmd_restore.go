@@ -19,6 +19,7 @@ type restoreConfig struct {
 	pubkey          string
 	identity        string
 	passphrase      bool
+	passphraseFile  string
 	json            bool
 	quiet           bool
 }
@@ -37,17 +38,30 @@ func runRestore(ctx context.Context, cfg restoreConfig, stdout, stderr io.Writer
 	if len(cfg.pubkey) > 0 && cfg.allowUnverified {
 		// Both are legal; --allow-unverified only applies when verify fails.
 	}
-	if cfg.identity != "" && cfg.passphrase {
-		return r.usage("--identity 与 --passphrase 只能二选一")
+	conf, confPath, err := loadConfig()
+	if err != nil {
+		return r.usage("配置文件 %s: %v", confPath, err)
+	}
+	if conf != nil {
+		cliIdentity := cfg.identity
+		applyConfigDefaults(conf, new(string), new(string), &cfg.identity, &cfg.pubkey, &rootList{})
+		// An explicit passphrase beats a config identity; otherwise the
+		// mutual-exclusion check below would reject a CLI-only choice.
+		if cliIdentity == "" && (cfg.passphrase || cfg.passphraseFile != "") {
+			cfg.identity = ""
+		}
+	}
+	if cfg.passphrase && cfg.passphraseFile != "" {
+		return r.usage("--passphrase 与 --passphrase-file 只能二选一")
+	}
+	if cfg.identity != "" && (cfg.passphrase || cfg.passphraseFile != "") {
+		return r.usage("--identity 与 --passphrase/--passphrase-file 只能二选一")
 	}
 	crypt := pack.CryptOptions{IdentityPath: cfg.identity}
-	if cfg.passphrase {
-		pw, perr := readPassphrase(passphraseStdin, stderr)
-		if perr != nil {
-			return r.usage("读取口令失败：%v", perr)
-		}
-		if len(pw) == 0 {
-			return r.usage("口令为空")
+	if cfg.passphrase || cfg.passphraseFile != "" {
+		pw, code := resolvePassphrase(r, cfg.passphrase, cfg.passphraseFile, stderr)
+		if code != exitOK {
+			return code
 		}
 		crypt.Passphrase = pw
 	}

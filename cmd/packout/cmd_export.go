@@ -21,19 +21,20 @@ import (
 )
 
 type exportConfig struct {
-	src         string
-	out         string
-	force       bool
-	report      string
-	identity    string
-	withSecrets bool
-	recipients  stringList
-	passphrase  bool
-	profile     string
-	roots       rootList
-	json        bool
-	quiet       bool
-	jobs        int
+	src            string
+	out            string
+	force          bool
+	report         string
+	identity       string
+	withSecrets    bool
+	recipients     stringList
+	passphrase     bool
+	passphraseFile string
+	profile        string
+	roots          rootList
+	json           bool
+	quiet          bool
+	jobs           int
 }
 
 type exportSummary struct {
@@ -65,14 +66,22 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 	if code, msg := checkOut(cfg.out, false, cfg.force); code != exitOK {
 		return r.fail(code, "%s", msg)
 	}
+	conf, confPath, err := loadConfig()
+	if err != nil {
+		return r.usage("配置文件 %s: %v", confPath, err)
+	}
+	if conf != nil {
+		applyConfigDefaults(conf, &cfg.profile, new(string), &cfg.identity, new(string), &rootList{})
+	}
 	identity := cfg.identity
 	if identity == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			identity = filepath.Join(home, ".config", "packout", "identity.age")
+		identity, err = defaultIdentityPath()
+		if err != nil {
+			identity = ""
 		}
 	}
 
-	roots, err := loadExportRoots(cfg)
+	roots, err := loadExportRoots(cfg, conf)
 	if err != nil {
 		return r.usage("export: %v", err)
 	}
@@ -81,26 +90,26 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 		return r.usage("export: %v", err)
 	}
 
+	if cfg.passphrase && cfg.passphraseFile != "" {
+		return r.usage("--passphrase 与 --passphrase-file 只能二选一")
+	}
 	crypt := pack.CryptOptions{IdentityPath: identity}
 	if cfg.withSecrets {
 		switch {
-		case len(cfg.recipients) == 0 && !cfg.passphrase:
-			return r.usage("export --with-secrets 需要 --recipient 或 --passphrase")
-		case len(cfg.recipients) > 0 && cfg.passphrase:
-			return r.usage("--recipient 与 --passphrase 只能二选一")
+		case len(cfg.recipients) == 0 && !cfg.passphrase && cfg.passphraseFile == "":
+			return r.usage("export --with-secrets 需要 --recipient 或 --passphrase/--passphrase-file")
+		case len(cfg.recipients) > 0 && (cfg.passphrase || cfg.passphraseFile != ""):
+			return r.usage("--recipient 与 --passphrase/--passphrase-file 只能二选一")
 		}
 		crypt.Recipients = cfg.recipients
-		if cfg.passphrase {
-			pw, perr := readPassphrase(passphraseStdin, stderr)
-			if perr != nil {
-				return r.usage("读取口令失败：%v", perr)
-			}
-			if len(pw) == 0 {
-				return r.usage("口令为空")
+		if cfg.passphrase || cfg.passphraseFile != "" {
+			pw, code := resolvePassphrase(r, cfg.passphrase, cfg.passphraseFile, stderr)
+			if code != exitOK {
+				return code
 			}
 			crypt.Passphrase = pw
 		}
-	} else if len(cfg.recipients) > 0 || cfg.passphrase {
+	} else if len(cfg.recipients) > 0 || cfg.passphrase || cfg.passphraseFile != "" {
 		return r.usage("--recipient/--passphrase 需要配合 --with-secrets")
 	}
 
@@ -182,7 +191,7 @@ func readPassphrase(r io.Reader, stderr io.Writer) ([]byte, error) {
 
 // loadExportRoots resolves what each profile root maps to on this machine.
 // Order: explicit --root flags win, then <src>/roots.json written by scan.
-func loadExportRoots(cfg exportConfig) (map[string]string, error) {
+func loadExportRoots(cfg exportConfig, conf *config) (map[string]string, error) {
 	roots := map[string]string{}
 	p := filepath.Join(cfg.src, "roots.json")
 	if b, err := os.ReadFile(p); err == nil {
@@ -191,6 +200,15 @@ func loadExportRoots(cfg exportConfig) (map[string]string, error) {
 		}
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
+	}
+	// Config roots only fill roles the scan did not record; the scan's own
+	// roots.json stays the better witness.
+	if conf != nil {
+		for role, path := range conf.Roots {
+			if _, ok := roots[role]; !ok {
+				roots[role] = path
+			}
+		}
 	}
 	for _, b := range cfg.roots {
 		roots[b.role] = b.path

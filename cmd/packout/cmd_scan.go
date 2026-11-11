@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -50,11 +51,25 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 	if cfg.out == "" {
 		return r.usage("scan 需要 --out")
 	}
+	conf, confPath, err := loadConfig()
+	if err != nil {
+		return r.usage("配置文件 %s: %v", confPath, err)
+	}
+	fromConfig := false
+	if conf != nil {
+		before := len(cfg.roots)
+		applyConfigDefaults(conf, &cfg.profileRef, &cfg.preset, new(string), new(string), &cfg.roots)
+		fromConfig = before == 0 && len(cfg.roots) > 0
+	}
 	p, err := loadProfile(cfg.profileRef, stderr)
 	if err != nil {
 		return r.usage("profile: %v", err)
 	}
-	if len(cfg.roots) == 0 {
+	if fromConfig {
+		for _, b := range cfg.roots {
+			fmt.Fprintf(stderr, "packout: root %s=%s（来自配置文件）\n", b.role, b.path)
+		}
+	} else if len(cfg.roots) == 0 {
 		rootEcho(p, stderr)
 	}
 	bindings, err := cfg.roots.bindings(p)

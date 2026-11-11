@@ -52,6 +52,12 @@ func mainWithArgs(args []string, stdout, stderr io.Writer) int {
 		return parseMCP(ctx, rest, stdout, stderr)
 	case "profile":
 		return parseProfile(ctx, rest, stdout, stderr)
+	case "init":
+		return parseInit(ctx, rest, stdout, stderr)
+	case "doctor":
+		return parseDoctor(ctx, rest, stdout, stderr)
+	case "pack":
+		return parsePack(ctx, rest, stdout, stderr)
 	case "version":
 		return parseVersion(ctx, rest, stdout, stderr)
 	default:
@@ -165,6 +171,7 @@ func parseExport(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	fs.BoolVar(&cfg.withSecrets, "with-secrets", false, "把 RESTORE 凭据加密写入 secrets.age，config/ 中留下 secret_ref")
 	fs.Var(&cfg.recipients, "recipient", "age1… 或 ssh-ed25519/ssh-rsa 公钥，可重复")
 	fs.BoolVar(&cfg.passphrase, "passphrase", false, "从终端读口令（scrypt 模式，与 --recipient 二选一）")
+	fs.StringVar(&cfg.passphraseFile, "passphrase-file", "", "从文件第一行读口令（与 --passphrase 互斥）")
 	fs.StringVar(&cfg.profile, "profile", "", "用于抽取配置的 profile（默认取清单头里的唯一 profile）")
 	fs.Var(&cfg.roots, "root", "覆盖 roots.json 中的 role=PATH（可重复）")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
@@ -233,6 +240,7 @@ func parseRestore(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	fs.StringVar(&cfg.pubkey, "pubkey", "", "公钥文件（默认 ~/.config/packout/trusted_keys）")
 	fs.StringVar(&cfg.identity, "identity", "", "age identity 路径（默认 ~/.config/packout/identity.age）")
 	fs.BoolVar(&cfg.passphrase, "passphrase", false, "从终端读 secrets.age 口令")
+	fs.StringVar(&cfg.passphraseFile, "passphrase-file", "", "从文件第一行读 secrets.age 口令（与 --passphrase 互斥）")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 报告")
 	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
 	pos, code := parse(fs, args, 1, restoreHelp, stdout, stderr)
@@ -304,6 +312,63 @@ func parseProfile(ctx context.Context, args []string, stdout, stderr io.Writer) 
 	return runProfile(ctx, cfg, stdout, stderr)
 }
 
+func parseInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	var cfg initConfig
+	fs.BoolVar(&cfg.force, "force", false, "覆盖已存在的配置（不会覆盖密钥）")
+	fs.BoolVar(&cfg.yes, "yes", false, "不交互，接受全部建议的根")
+	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
+	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
+	if _, code := parse(fs, args, 0, initHelp, stdout, stderr); code >= 0 {
+		return code
+	}
+	return runInit(ctx, cfg, stdout, stderr)
+}
+
+func parseDoctor(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	var cfg doctorConfig
+	fs.StringVar(&cfg.out, "out", "", "顺便检查该 --out 的父目录是否可写")
+	fs.StringVar(&cfg.profile, "profile", "", "用于 selftest 的 profile（默认取配置或 "+defaultProfile+"）")
+	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 检查结果")
+	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误与失败项")
+	if _, code := parse(fs, args, 0, doctorHelp, stdout, stderr); code >= 0 {
+		return code
+	}
+	return runDoctor(ctx, cfg, stdout, stderr)
+}
+
+func parsePack(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("pack", flag.ContinueOnError)
+	var cfg packConfig
+	fs.StringVar(&cfg.out, "out", "", "包目录（必填，无默认值）")
+	fs.BoolVar(&cfg.force, "force", false, "覆盖已存在且非空的 --out")
+	fs.StringVar(&cfg.profileRef, "profile", "", "内置 profile 名或文件路径（默认 "+defaultProfile+"）")
+	fs.Var(&cfg.roots, "root", "role=PATH，可重复；不给时用配置或 profile 默认值")
+	fs.StringVar(&cfg.preset, "preset", "", "选择预设：minimal|standard|full（默认配置或 standard）")
+	fs.StringVar(&cfg.include, "include", "", "额外包含，逗号分隔")
+	fs.StringVar(&cfg.exclude, "exclude", "", "最后排除，逗号分隔")
+	fs.StringVar(&cfg.sessionsSince, "sessions-since", "", "只带最近 N 天的会话：7d|30d|all")
+	fs.Var(&cfg.sessionsProj, "sessions-project", "只带该项目 slug 的会话（可重复）")
+	fs.IntVar(&cfg.sessionsMax, "sessions-max-per-project", 0, "每个项目最多保留 N 个最新会话")
+	fs.BoolVar(&cfg.followSymlinks, "follow-symlinks", false, "跟随符号链接/联接点")
+	fs.BoolVar(&cfg.stableSalt, "stable-salt", false, "使用持久 salt")
+	fs.BoolVar(&cfg.withSecrets, "with-secrets", false, "把 RESTORE 凭据加密写入 secrets.age")
+	fs.Var(&cfg.recipients, "recipient", "age1… 或 ssh 公钥，可重复")
+	fs.BoolVar(&cfg.passphrase, "passphrase", false, "从终端读口令")
+	fs.StringVar(&cfg.passphraseFile, "passphrase-file", "", "从文件第一行读口令（与 --passphrase 互斥）")
+	fs.StringVar(&cfg.identity, "identity", "", "identity 路径（默认取配置或 ~/.config/packout/identity.age）")
+	fs.BoolVar(&cfg.sign, "sign", false, "导出后签名（与 --key 一起或单独使用）")
+	fs.StringVar(&cfg.key, "key", "", "minisign 私钥路径（给 --key 隐含 --sign）")
+	fs.IntVar(&cfg.jobs, "jobs", 0, "并行 worker 数（默认 min(GOMAXPROCS,16)）")
+	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
+	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
+	if _, code := parse(fs, args, 0, packHelp, stdout, stderr); code >= 0 {
+		return code
+	}
+	return runPack(ctx, cfg, stdout, stderr)
+}
+
 func parseVersion(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("version", flag.ContinueOnError)
 	var cfg versionConfig
@@ -358,7 +423,8 @@ func scanHelp(ref string) string {
   --json               stdout 输出可解析的 JSON 摘要
   --quiet              只输出错误
 
-不给 --root 时使用 profile 的 root 默认值（并在 stderr 回显）：
+不给 --root 时按配置文件的 roots，再退到 profile 的 root 默认值（每一步都在
+stderr 回显实际来源）：
 ` + helpRoots("") + `
 退出码: 0 完成 / 2 未处理读取错误 / 3 用法或 profile 错误 / 4 --out 非空 / 5 中断
 `
@@ -367,9 +433,12 @@ func scanHelp(ref string) string {
 const topHelp = `用法: packout <命令> [参数]
 
 命令:
+  init                 生成配置、age identity 与 minisign 密钥
+  doctor               只读自检（配置、根、密钥、权限、磁盘）
   scan                 扫描并写 manifest 到 --out
   report               由 manifest 渲染报告（默认起本机服务）
   export               打成状态包
+  pack                 scan → export →（可选）sign 一条链
   verify               校验一个包（只读）
   sign                 用 minisign 私钥给包签名
   restore              把包恢复到目标目录（默认只写空目录）
@@ -377,8 +446,59 @@ const topHelp = `用法: packout <命令> [参数]
   profile list|probe|test  列内置、真机存在性探测、跑 selftest
   version              版本、commit、profile schema 版本
 
-所有命令都支持 --json（stdout 输出可解析 JSON）与 --quiet（只留错误）。
+配置位于 ~/.config/packout/config.json（Windows: %APPDATA%\packout\config.json）；
+CLI 参数优先。所有命令都支持 --json 与 --quiet。
 写操作一律先落临时名再原子改名。退出码: 0/2/3/4/5，见 docs/design-cli.md。
+`
+
+const initHelp = `用法: packout init [--force] [--yes]
+
+交互式生成 ~/.config/packout/config.json（Windows：%APPDATA%\packout\config.json），
+并生成缺失的 age identity（0600）与 minisign 密钥对（私钥 0600）。已有文件一律
+不覆盖：配置已存在时需要 --force，密钥与 identity 只报告已存在。
+
+  --force   覆盖已存在的配置（不覆盖密钥）
+  --yes     不交互，接受全部建议的根
+  --json    stdout 输出可解析的 JSON 摘要
+  --quiet   只输出错误
+
+检测 home；当前目录有 .git/.claude/CLAUDE.md 时建议 repo；Windows 另建议
+appdata/localappdata。退出码: 0 完成 / 3 用法或生成失败
+`
+
+const doctorHelp = `用法: packout doctor [--out DIR] [--json]
+
+只读自检，不修任何东西。逐项输出 ok|warn|fail：
+配置解析、根存在可读、identity/私钥权限（Unix 0600）、trusted_keys、--out
+父目录可写、磁盘余量、profile selftest、MCP 注册提示。
+
+  --out DIR   顺便检查该输出路径的父目录是否可写
+  --profile   用于 selftest 的 profile
+  --json      输出可解析的 {ok,checks[]}
+  --quiet     只输出错误与失败项
+
+有 fail 时退出 2，否则 0。
+`
+
+const packHelp = `用法: packout pack --out DIR [选择/加密/签名参数]
+
+一条链完成：scan（临时目录）→ export（--out）→ 可选 sign。成功打印包路径与
+verify 命令；任一失败返回该步退出码，已完成产物保留并打印路径。
+
+  --out DIR        包目录（必填，无默认值）
+  --force          覆盖已存在且非空的 --out
+  --profile NAME   内置 profile 名或文件路径
+  --root role=PATH 覆盖根（可重复；缺省用配置或 profile 默认值）
+  --preset P       minimal|standard|full
+  --include LIST / --exclude LIST / --sessions-*  同 scan
+  --with-secrets / --recipient / --passphrase / --passphrase-file  同 export
+  --identity FILE  identity 路径
+  --sign           导出后签名
+  --key FILE       minisign 私钥（给 --key 隐含 --sign）
+  --jobs N         并行 worker 数
+  --json / --quiet 机器输出 / 只留错误
+
+退出码: 0 完成 / 2 步骤失败 / 3 用法或配置 / 4 --out 非空 / 5 中断
 `
 
 const reportHelp = `用法: packout report --manifest DIR --out FILE [--no-serve] [--lan]
@@ -414,6 +534,7 @@ const exportHelp = `用法: packout export --src DIR --out DIR [--force]
                    --passphrase 时报用法错误
   --recipient KEY  age1… 或 ssh-ed25519/ssh-rsa 公钥（可重复）
   --passphrase     从终端读口令（不回显）；口令命令行传递会泄漏，故不用参数值
+  --passphrase-file FILE  从文件第一行读口令（去 CRLF；与 --passphrase 互斥）
   --profile NAME   specified 配置抽取用的 profile（默认读清单头）
   --root role=PATH 覆盖 roots.json 的根映射（可重复）
   --jobs N         并行哈希/复制的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）
@@ -439,6 +560,7 @@ config/ 中的 «secret:…» 占位符会现场替换为明文；找不到引�
   --pubkey FILE        公钥文件（默认 ~/.config/packout/trusted_keys）
   --identity FILE      age identity（默认 ~/.config/packout/identity.age）
   --passphrase         从终端读口令（与 --identity 二选一）
+  --passphrase-file FILE  从文件第一行读口令（与 --passphrase、--identity 互斥）
   --json               stdout 输出可解析的 JSON 报告
   --quiet              只输出错误
 

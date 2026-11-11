@@ -14,19 +14,31 @@ packout 解决的是**跨机器**：这台机器搬走、重装或卖掉之后�
 ## 能做什么
 
 ```bash
-packout scan   --out ./out --root home=$HOME --root repo=/path/to/repo   # 只读扫描
+packout init                                                             # 交互生成配置、identity、minisign 密钥
+packout doctor --out ./out                                               # 只读自检，有 fail 退出 2
+packout scan   --out ./out                                               # 用配置的根；没配置时回落到 profile 默认值
+packout pack   --out ./pack --sign                                       # scan → export → sign 一条链
+packout scan   --out ./out --root home=$HOME --root repo=/path/to/repo   # 只读扫描（CLI 覆盖配置）
 packout scan   --out ./out --root home=$HOME                      # 默认 standard：配置+记忆，不带会话
 packout scan   --out ./out --root home=$HOME --preset full        # 连会话 transcript 一起带走
 packout scan   --out ./out --root home=$HOME --include agent --exclude history   # 细选
 packout report --out ./out --in ./out # 起一个只绑 127.0.0.1 的报告页
 packout export --src ./out --out ./pack   # 打成可校验的状态包（自动读 out/roots.json）
 packout export --src ./out --out ./pack --with-secrets --recipient age1…  # 凭据进 secrets.age
+packout export --src ./out --out ./pack --with-secrets --passphrase-file ./pw   # 口令取自文件第一行
 packout sign   ./pack --key ~/.config/packout/minisign.key   # 签名（覆盖 SIG.json + manifest/）
 packout verify ./pack --pubkey ./me.pub   # → ok / tampered / bad-signature / unsigned
 packout restore ./pack --into ~/.claude-home   # 恢复到空目录；未签名默认拒绝
 packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计划
 packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdio）
 ```
+
+## 配置
+
+`packout init` 把常用根写进 `~/.config/packout/config.json`（Windows：
+`%APPDATA%\packout\config.json`，Unix 0600）。之后 scan/export/restore/mcp
+可以不重复 `--root`/`--identity`/`--pubkey`/`--preset`。**CLI 参数永远优先**；
+配置坏了退出 3 并打印路径。未知键直接报错，避免拼错字段被静默忽略。
 
 ## 安全姿态
 
@@ -51,6 +63,8 @@ packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdi
 - 报告里的凭据只到前缀与指纹，无法确认"是不是这一条"的末位。
 - `secret_ref` 只写在配置占位符里，不写进清单；因此不持密钥时无法校验引用有效性。
 - 未签名的包 `verify` 退出码是 **2**（`unsigned`）。P0 时代的 `hash-ok, unverified` 不再是终态。
+- `--passphrase-file` 只读第一行；口令含换行只能写到第一行里。
+- `pack` 失败时会保留已完成的扫描/包并在 stderr 给出路径，方便从中间步骤重试。
 - MCP 的 `restore_plan` 只接 age identity；口令加密的包在 MCP 里拿不到计划（CLI 可以 `--passphrase`）。
 - 选择默认是 `--preset standard`（配置+记忆，不带会话）；`minimal` 只带配置，`full` 才带会话。`--include/--exclude` 可按条目 id、类别或层细选，被排除的条目在报告里单列原因。
 - `--preset full`（旧 `--with-sessions` 别名）把 transcript / tool-results / subagents 的**原字节**打进包：这类文件在包里是**明文**，只有 ≤ 8 MiB 的条目会做 `secret_ref` 占位符替换，更大的直接流式复制；包可能大出数倍（单文件上限 1 GiB，超出跳过并告警），不随 `--with-secrets` 进 `secrets.age`。

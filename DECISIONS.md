@@ -462,3 +462,14 @@ P1 的安全门槛比 P0 高一个量级：P0 只读，P1 开始往磁盘写字�
 - 选择写进 `inputs.options.selection`，仅非默认时写；`standard` 且无过滤时整个对象省略，既有 golden 头不变。`export`/`report` 只读 header，不重新选择；header 选择元素与当前 profile 不匹配时 export 给警告不失败。
 - report 新增“本次未带走”段：默认选择只按类别给计数与“用 --include sessions/--preset full 打开”提示，非默认选择才逐条列 entry/category/原因；报告头部另起一行写明本次选择。`selection_skipped` 从通用 notes 表移出。
 - 包内会话仍走既有明文/大小上限规则；`include sessions` 与 `--preset full` 一样自动置 `options.with_sessions`。
+
+## D-051 配置、init、doctor、passphrase-file 与 pack
+接受。四个增量都围绕"少打字但不加决策层"。
+
+- **配置只做缺省**：CLI > config > profile 默认值。严格 JSON（未知键/未知 version 退出 3），坏配置消息必带路径。Unix 0600、父目录 0700；Windows 走 `%APPDATA%`。配置里只放已存在的绝对路径。
+- **`init` 交互逐项确认**，`--yes` 非交互；`--force` 只授权重写配置，identity/minisign 私钥永不覆盖（换机导入即用）。`minisign.key` 复用 `pack.GenerateKeyPair` 的自检；age identity 用 `age.GenerateX25519Identity`，0600。
+- **`doctor` 只读**，每项 ok/warn/fail，有 fail 退出 2；`--out` 的父目录用一次性临时文件探测可写（唯一写，随删）。权限检查 Unix-only（Windows 模式位是合成的）。
+- **`--passphrase-file`** 读第一行、去 CRLF、空行退出 3，与 `--passphrase` 互斥；文件本身权限不在本工具职责内。
+- **`pack` 是一条链，不是新格式**：scan 到 `--out` 同卷临时目录 → export → 可选 sign；每步沿用原退出码。成功删临时目录，失败保留已完成产物并在 stderr 打印路径。`--key` 隐含 `--sign`。
+
+限制：doctor 的磁盘阈值是固定的 100 MiB fail / 1 GiB warn；`pack` 的临时扫描目录位于 `--out` 父目录，失败后需用户自行清理；配置没有备份/迁移命令。

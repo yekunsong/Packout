@@ -29,3 +29,10 @@
 ## 报告漏洞
 
 包格式、profile 解析、路径处理是重点面。请附上能复现的最小输入，不要附真实密钥。
+
+## 配置与密钥
+
+- 配置目录随平台：Unix `~/.config/packout/`（0700），Windows `%APPDATA%\packout\`。
+- `identity.age`、`minisign.key`、`config.json` 在 Unix 为 0600；`doctor` 会把过宽权限报 fail。
+- `init` 从不覆盖已有密钥：换机导入自己的 identity/私钥后直接运行即可。
+- `--passphrase-file` 的第一行是口令明文，文件本身的保护由用户负责（建议 0600）。

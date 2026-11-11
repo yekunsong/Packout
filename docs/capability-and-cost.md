@@ -17,13 +17,20 @@
 
 判据不是"文件大小"，而是**丢了还能不能重建**：配置能重写，记忆不能，会话也不能（transcript 里是当时读过的内容与决策链）。
 
-## 2. 记忆与会话
+## 2. 带回多少由选择决定
+
+- 默认 `--preset standard`：配置 + 记忆，不带会话。
+- `--preset minimal` 只带配置；`--preset full` 带会话（旧 `--with-sessions` 别名）。
+- `--include/--exclude` 可按 entry id、类别（config/memory/sessions/skill/agent/command/rules/history/plugin）或层细选；被排除的条目在报告里单列原因。
+- 会话可再按 `--sessions-since 30d`、`--sessions-project`、`--sessions-max-per-project` 收窄。
+
+## 3. 记忆与会话
 
 - 记忆：`projects-memory` 条目，按项目 slug 归属，`template` 抽取，凭据转占位符。
 - 会话：默认只记 sha256（扫描快、包小）；`--with-sessions` 才逐文件出行并复制原字节。
 - 大文件：>8 MiB 直接流式原文（不做占位符），>1 GiB 单文件跳过并告警；这些文件在包里是**明文**。
 
-## 3. 实测成本（服务器 32C/64G）
+## 4. 实测成本（服务器 32C/64G）
 
 | 场景 | 墙钟 | 峰值 RSS | 产物 |
 |---|---|---|---|
@@ -38,7 +45,7 @@
 
 结论：默认包是"几 MB 级"，会话包是"GB 级"，且**传输时间远大于生成时间**。
 
-## 4. 优化
+## 5. 优化
 
 已做：
 - 大文件 head-tail 指纹（>32 MiB），避免扫描期读全量。
@@ -55,7 +62,7 @@
 - 导出进度与预计剩余；大包断点续传。
 - 内存模型：现在先收集再排序再写（50k 单位约 474 MB），可改流式排序。
 
-## 5. 边界
+## 6. 边界
 
 - 不同 AI 工具（Codex/Cursor）的结构差异在 profile 里，不在引擎。
 - 记忆目录布局属于 Claude Code 的**未文档化行为**，版本升级要重测。

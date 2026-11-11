@@ -28,6 +28,13 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 	if ctx.Err() != nil {
 		return exitFromCtx(r, ctx)
 	}
+	conf, confPath, err := loadConfig()
+	if err != nil {
+		return r.usage("配置文件 %s: %v", confPath, err)
+	}
+	if conf != nil {
+		applyConfigDefaults(conf, new(string), new(string), new(string), &cfg.pubkey, &rootList{})
+	}
 	opt := pack.VerifyOptions{PubKeyPath: cfg.pubkey, Jobs: cfg.jobs}
 	opt.OnKeySeen = func(fingerprint string, firstSeen bool) {
 		if firstSeen {

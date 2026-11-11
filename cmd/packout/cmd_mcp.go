@@ -15,13 +15,14 @@ import (
 // mcpConfig is the startup configuration of `packout mcp`. Everything a tool
 // may read is fixed here; tools/call arguments are filters only (INV-I03).
 type mcpConfig struct {
-	out        string
-	profileRef string
-	roots      rootList
-	pkg        string
-	into       string
-	identity   string
-	pubkey     string
+	out             string
+	profileRef      string
+	roots           rootList
+	pkg             string
+	into            string
+	identity        string
+	pubkey          string
+	rootsFromConfig bool
 }
 
 // parseMCP parses the process arguments. Missing --out or an unknown --root
@@ -33,6 +34,16 @@ func parseMCP(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 	fs := newMCPFlagSet(&cfg)
 	if _, code := parse(fs, args, 0, mcpHelp, stdout, stderr); code >= 0 {
 		return code
+	}
+	conf, confPath, err := loadConfig()
+	if err != nil {
+		fmt.Fprintf(stderr, "packout: 配置文件 %s: %v\n", confPath, err)
+		return exitUsage
+	}
+	if conf != nil {
+		before := len(cfg.roots)
+		applyConfigDefaults(conf, &cfg.profileRef, new(string), &cfg.identity, &cfg.pubkey, &cfg.roots)
+		cfg.rootsFromConfig = before == 0 && len(cfg.roots) > 0
 	}
 	return runMCP(ctx, cfg, stderr)
 }
@@ -102,6 +113,10 @@ func resolveMCPRoots(cfg mcpConfig, p *profile.Profile) ([]mcp.Root, error) {
 			return nil, err
 		}
 		counts := map[string]int{}
+		origin := "cli"
+		if cfg.rootsFromConfig {
+			origin = "config"
+		}
 		out := make([]mcp.Root, 0, len(bindings))
 		for _, b := range bindings {
 			counts[b.Role]++
@@ -111,7 +126,7 @@ func resolveMCPRoots(cfg mcpConfig, p *profile.Profile) ([]mcp.Root, error) {
 			}
 			out = append(out, mcp.Root{
 				Name: name, Role: b.Role, Instance: counts[b.Role],
-				Origin: "cli", Path: b.Path,
+				Origin: origin, Path: b.Path,
 			})
 		}
 		return out, nil

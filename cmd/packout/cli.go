@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -365,4 +366,44 @@ func sortedKeys[V any](m map[string]V) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// readPassphraseFile reads the first line of FILE, strips a trailing CRLF and
+// refuses an empty line: an empty passphrase is never what the user meant.
+func readPassphraseFile(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	line := data
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		line = data[:i]
+	}
+	line = bytes.TrimSuffix(line, []byte("\r"))
+	if len(line) == 0 {
+		return nil, fmt.Errorf("%s 的第一行为空", path)
+	}
+	return line, nil
+}
+
+// resolvePassphrase returns the passphrase from the terminal (--passphrase) or
+// from --passphrase-file. The two are mutually exclusive.
+func resolvePassphrase(r *reporter, terminal bool, file string, stderr io.Writer) ([]byte, int) {
+	if terminal && file != "" {
+		return nil, r.usage("--passphrase 与 --passphrase-file 只能二选一")
+	}
+	var pw []byte
+	var err error
+	if file != "" {
+		pw, err = readPassphraseFile(file)
+	} else {
+		pw, err = readPassphrase(passphraseStdin, stderr)
+	}
+	if err != nil {
+		return nil, r.usage("读取口令失败：%v", err)
+	}
+	if len(pw) == 0 {
+		return nil, r.usage("口令为空")
+	}
+	return pw, exitOK
 }
