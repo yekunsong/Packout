@@ -75,6 +75,7 @@ header 必填：`manifest_version`、`scan_id`（ULID）、`scan_segment`、`sta
 `path_fold_version` 固定写 `x/text` 模块版本与 Unicode 版本（见 §6.3），用于判断 `path_key` 是否可直接比较。
 `inputs.secret_salt_mode` 取 `random` / `stable`，见 §9 第 3 条。
 `inputs.options` 记录影响语料的扫描选项：`follow_symlinks` 恒写；`with_sessions` 为可选布尔，仅在 `scan --with-sessions` 时以 `true` 出现。为 `true` 时，profile 中 `sessions: true` 的条目已逐文件出行，`export` 必须把它们的 `extractor` 当 `raw-ref` 处理并保留原字节；缺省按 `false`。
+`inputs.options.selection` 为可选对象，记录非默认的“带什么”选择；字段 `preset`（`minimal`/`standard`/`full`，`standard` 缺省）、`include`、`exclude`（元素为 entry id、类别或 `L0`…`L5`，include 先加、exclude 最后减）、`sessions_since`（`7d`/`30d`/`all`）、`sessions_project`、`sessions_max_per_project`。仅非默认项写出；`standard` 且无 include/exclude/会话过滤时整个 `selection` 省略，既有 golden 头不变。消费方（`export`、`report`）只读 header 执行，不重新选择；header 的选择元素在当前 profile 中无匹配时给警告、不失败。
 
 ### 3.2 note
 
@@ -82,7 +83,7 @@ header 必填：`manifest_version`、`scan_id`（ULID）、`scan_segment`、`sta
 {"type":"note","scan_id":"01JQ…","code":"probe_unavailable","profile":"claude-code","entry":"oauth-credential-store","detail":"wincred 探测返回 ERROR_NOT_FOUND"}
 ```
 
-`note` 不是结论，不参与统计。`code` 取固定枚举：`probe_unavailable`、`permission_denied`、`budget_exceeded`、`profile_skipped`、`path_too_long`、`read_error`、`aggregated`、`part_overlap`、`part_missing`、`part_uncovered`、`binary_presence_only`、`content_not_read`、`companion_missing`、`target_duplicate`、`side_effect_unexpected`、`priority_tie`、`residual_deduplicated`、`depth_truncated`、`root_unresolved`、`empty_glob`、`ads_stream`。
+`note` 不是结论，不参与统计。`code` 取固定枚举：`probe_unavailable`、`permission_denied`、`budget_exceeded`、`profile_skipped`、`path_too_long`、`read_error`、`aggregated`、`part_overlap`、`part_missing`、`part_uncovered`、`binary_presence_only`、`content_not_read`、`companion_missing`、`target_duplicate`、`side_effect_unexpected`、`priority_tie`、`residual_deduplicated`、`depth_truncated`、`root_unresolved`、`empty_glob`、`ads_stream`、`selection_skipped`。`selection_skipped` 的 `detail` 给原因，可选 `category` 字段记录条目类别；每条未选中的 entry 恰一条，被会话 `since`/`project`/`max` 过滤的每个路径也各一条。
 
 `note` 可带 `part_id`、`companions` 与 `side_effects` 等上下文字段，用于把说明挂到具体结论上；字段语义同 §4.1。另有两个固定语义：空 glob（C11）必须留 `empty_glob` note；NTFS ADS 在 P0 只留 `ads_stream` note，不独立成 Unit（`D-015` 第 6、9 条）。
 
@@ -328,7 +329,7 @@ header 必填：`manifest_version`、`scan_id`（ULID）、`scan_segment`、`sta
 
 ### 5.3 多 profile 同路径
 
-- 两个 profile 的 selector 命中同一 `path_key` 时**各自照常产出 Unit**；`E-MAN-025` 按 `(profile, entry, part_id, file_id)` 判重，`file_id` 不可得时退回 `(profile, entry, part_id, path_key)`，不跨 profile。大小写不敏感卷上的 `Demo`/`demo` 因 `file_id` 不同而合法；同一路径的多个 part 因 `part_id` 不同而合法（`D-015` 第 2 条）。
+- 两个 profile 的 selector 命中同一 `path_key` 时**各自照常产出 Unit**；`E-MAN-025` 按 `(profile, entry, part_id, origin_path_key, file_id)` 判重（origin 缺省为空串；机器派生行靠它区分同一路径下的兄弟行），`file_id` 不可得时退回 `(profile, entry, part_id, origin_path_key, path_key)`，不跨 profile。大小写不敏感卷上的 `Demo`/`demo` 因 `file_id` 不同而合法；同一路径的多个 part 因 `part_id` 不同而合法（`D-015` 第 2 条）。
 - 报告按 `path_key` 归并显示：`layer` 取层号更高者，`signals` 求并集去重，`risk_flags` 求并集，并同时列出两个 `profile` 名。归并结果在统计中只计一次，按归并后的层计数。
 - 归并落到报告层，manifest 本身不合并两份 Unit；`W-MAN-111` 保留提示（`D-011` 第 11 条）。
 
@@ -525,7 +526,7 @@ manifest 只记**位置与指纹**，`secrets.age` 只装**密文**。硬规则�
 | `E-MAN-022` | error | `reparse_tag` 非空但 `file_id` 缺失 |
 | `E-MAN-023` | error | `schema_version` 与 header 不匹配 |
 | `E-MAN-024` | error | `proposed_action` 与 `layer` 不相容（见 §11.2） |
-| `E-MAN-025` | error | 同一 `(profile, entry, part_id, file_id)` 出现多次；`file_id` 为 null 时用 `(profile, entry, part_id, path_key)`；`part_id: uncovered` 的行改用 `(profile, entry, uncovered, origin_path_key)` |
+| `E-MAN-025` | error | 同一 `(profile, entry, part_id, origin_path_key, file_id)` 出现多次（origin 缺省为空串）；`file_id` 为 null 时用 `(profile, entry, part_id, origin_path_key, path_key)` |
 | `E-MAN-026` | error | header 缺 `path_fold_version`，或 `path_key` 与按该版本折叠的结果不符（版本不同降为 `W-MAN-113`） |
 | `E-MAN-027` | error | `size_estimated: true` 但 `size_apparent` 为 null，或用在非 named-location/非聚合 Unit |
 | `E-MAN-028` | error | `cid` 格式非法，或与 `fingerprint` 重算结果不符 |
@@ -553,7 +554,7 @@ manifest 只记**位置与指纹**，`secrets.age` 只装**密文**。硬规则�
 | `E-MAN-068` | error | catch-all Unit 缺少恰好一条引擎注入的 `residual` signal（`src` 为 `filesystem_stat` 且 note 非空），或注入了多条 |
 | `E-MAN-069` | error | `origin` 出现在 `literal` Unit 上、`origin_path_key` 与 `origin` 折叠不一致，或两者一有一无 |
 | `E-MAN-070` | error | `open_as` 值非法，或 `side_effects: ["shm_created"]` 而 `open_as` 不是 `sqlite-ro` |
-| `E-MAN-071` | error | `inputs.options.with_sessions` 存在但不是布尔值 |
+| `E-MAN-071` | error | `inputs.options.with_sessions` 不是布尔值，或 `inputs.options.selection` 形状/取值非法 |
 | `E-MAN-062` | error | `layer: L0` 且 `needed_by` 非空但缺 `deletion_cost` |
 | `E-MAN-063` | error | `companions` 中的后缀也作为独立 Unit 出现，或主文件缺失却有伴生 Unit |
 | `E-MAN-064` | error | catch-all Unit 的 `confidence != 0.500` |

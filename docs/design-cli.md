@@ -40,6 +40,7 @@
 
 - 不做交互式 TUI（P0）。
 - `restore` 见 `design-restore.md`（P1 已实现，D-046）。
+- 选择（`--preset/--include/--exclude/--sessions-*`）见 spec-profile-model §5.12 与 D-050；默认 standard，会话需 full 或显式 include。
 - 不读配置文件（P0 全部走参数，避免再引入一个配置面）。
 - 不自动打开浏览器以外的任何东西；打开失败只提示路径。
 

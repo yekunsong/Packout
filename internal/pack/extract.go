@@ -60,6 +60,19 @@ func extractConfig(m *manifest.Manifest, prof *profile.Profile, roots map[string
 	// Preparation stays sequential so duplicate destinations resolve by
 	// manifest order; only the read/render/write half runs in parallel.
 	var warnings []string
+	// Selection is executed from the header, never re-derived. A profile
+	// that drifted since the scan only earns a warning (D-050).
+	if opts := m.Header.Inputs.Options; opts != nil && opts.Selection != nil {
+		hs := opts.Selection
+		sel := &profile.Selection{
+			Preset: hs.Preset, Include: hs.Include, Exclude: hs.Exclude,
+			SessionsSince: hs.SessionsSince, SessionsProjects: hs.SessionsProjects,
+			SessionsMaxPerProject: hs.SessionsMaxPerProject,
+		}
+		for _, w := range sel.Mismatches(prof) {
+			warnings = append(warnings, "selection: "+w+"（按 header 继续导出）")
+		}
+	}
 	var tasks []extractTask
 	written := make(map[string]bool)
 	planned := int64(0)

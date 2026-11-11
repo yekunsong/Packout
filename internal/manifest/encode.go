@@ -306,6 +306,37 @@ func writeStringArray(j *jsonBuf, values []string) {
 	j.endArray()
 }
 
+// encodeSelection writes the non-default selection fields (manifest §3.1).
+func encodeSelection(j *jsonBuf, s *Selection) {
+	j.beginObject()
+	if s.Preset != "" && s.Preset != "standard" {
+		j.field("preset")
+		j.str(s.Preset)
+	}
+	if len(s.Include) > 0 {
+		j.field("include")
+		writeStringArray(j, s.Include)
+	}
+	if len(s.Exclude) > 0 {
+		j.field("exclude")
+		writeStringArray(j, s.Exclude)
+	}
+	if s.SessionsSince != "" && s.SessionsSince != "all" {
+		j.field("sessions_since")
+		j.str(s.SessionsSince)
+	}
+	if len(s.SessionsProjects) > 0 {
+		j.field("sessions_project")
+		writeStringArray(j, s.SessionsProjects)
+	}
+	if s.SessionsMaxPerProject != 0 {
+		j.field("sessions_max_per_project")
+		j.integer(int64(s.SessionsMaxPerProject))
+	}
+	writeExtra(j, s.Extra, s.extraOrder)
+	j.endObject()
+}
+
 func writeSignals(j *jsonBuf, signals []Signal, catchAll bool) {
 	ordered := signals
 	if !catchAll {
@@ -531,6 +562,10 @@ func EncodeHeader(h *Header) []byte {
 			j.field("with_sessions")
 			j.boolean(true)
 		}
+		if sel := h.Inputs.Options.Selection; sel != nil {
+			j.field("selection")
+			encodeSelection(&j, sel)
+		}
 		writeExtra(&j, h.Inputs.Options.Extra, h.Inputs.Options.extraOrder)
 		j.endObject()
 	}
@@ -586,6 +621,10 @@ func EncodeNote(n *Note) []byte {
 	if n.Entry != "" {
 		j.field("entry")
 		j.str(n.Entry)
+	}
+	if n.Category != "" {
+		j.field("category")
+		j.str(n.Category)
 	}
 	if n.PartID != "" {
 		j.field("part_id")

@@ -324,3 +324,82 @@ func TestBuiltinClaudeCodePipelineE2E(t *testing.T) {
 		t.Fatalf("verify conclusion = %q, want %q", v.Conclusion, pack.ConclusionUnsigned)
 	}
 }
+
+// TestPresetCountsE2E pins the three presets on the built-in corpus: minimal
+// drops memory and sessions, standard carries memory but no session rows, full
+// carries session rows. --include/--exclude then adjusts on top.
+func TestPresetCountsE2E(t *testing.T) {
+	p, err := profile.Builtin("claude-code")
+	if err != nil {
+		t.Fatalf("Builtin: %v", err)
+	}
+	tree, home := materializeFakeHome(t, p)
+	e2eWrite(t, filepath.Join(home, ".claude", "projects", e2eSlugAlpha, "memory", "MEMORY.md"),
+		[]byte("# memory\n"))
+	repo := filepath.Join(tree, "repo")
+
+	run := func(preset, include, exclude string, withSessions bool) map[string]int {
+		out := filepath.Join(t.TempDir(), "out")
+		sel, err := profile.ParseSelection(p, preset, include, exclude, "", nil, 0, withSessions)
+		if err != nil {
+			t.Fatalf("ParseSelection: %v", err)
+		}
+		cfg := Config{
+			Profile: p, OutDir: out, Selection: sel,
+			WithSessions: withSessions || sel.CarriesSessions(),
+			Roots:        []RootBinding{{Role: "home", Path: home}, {Role: "repo", Path: repo}},
+			GOOS:         runtime.GOOS, Clock: e2eClock{},
+			Salt: manifest.FixedSalt("00112233445566778899aabbccddeeff"),
+		}
+		if _, err := Run(context.Background(), cfg); err != nil {
+			t.Fatalf("Run(%s): %v", preset, err)
+		}
+		counts := map[string]int{}
+		for _, u := range unitsOf(t, out) {
+			for _, e := range p.Entries {
+				if e.ID == u.Entry {
+					counts[profile.CategoryOf(e)]++
+					break
+				}
+			}
+		}
+		return counts
+	}
+
+	minimal := run("minimal", "", "", false)
+	t.Logf("counts minimal = %v", minimal)
+	if minimal[profile.CategoryMemory] != 0 || minimal[profile.CategorySessions] != 0 {
+		t.Errorf("minimal counts = %v, want no memory/sessions", minimal)
+	}
+	if minimal[profile.CategoryConfig] == 0 {
+		t.Error("minimal carried no config")
+	}
+	standard := run("", "", "", false)
+	t.Logf("counts standard = %v", standard)
+	if standard[profile.CategoryMemory] == 0 {
+		t.Error("standard carried no memory")
+	}
+	if standard[profile.CategorySkill] == 0 {
+		t.Error("standard carried no skill (historical default regression)")
+	}
+	if standard[profile.CategorySessions] != 0 {
+		t.Errorf("standard carried %d session units", standard[profile.CategorySessions])
+	}
+	full := run("full", "", "", true)
+	t.Logf("counts full = %v", full)
+	if full[profile.CategorySessions] == 0 {
+		t.Error("full carried no session units")
+	}
+	// The session rows are per file under full.
+	if full[profile.CategorySessions] < standard[profile.CategorySessions]+1 {
+		t.Errorf("full session units = %d", full[profile.CategorySessions])
+	}
+	mixed := run("", "sessions", "skills", false)
+	t.Logf("counts include=sessions exclude=skills = %v", mixed)
+	if mixed[profile.CategorySessions] == 0 {
+		t.Error("--include sessions had no effect")
+	}
+	if mixed[profile.CategorySkill] != 0 {
+		t.Error("--exclude skills had no effect")
+	}
+}

@@ -32,10 +32,11 @@ try:
                 s in ti.name for s in ("/.git", "/build", "__pycache__", ".exe")) else ti)
         buf.seek(0)
         sftp = client.open_sftp()
-        with sftp.file("packout-sync.tgz", "wb") as f:
+        tgz = "packout-sync-%d.tgz" % os.getpid()
+        with sftp.file(tgz, "wb") as f:
             f.write(buf.read())
         sftp.close()
-        _, out, err = client.exec_command("rm -rf %s && mkdir -p %s && tar xzf ~/packout-sync.tgz -C %s" % (DEST, DEST, DEST))
+        _, out, err = client.exec_command("rm -rf %s && mkdir -p %s && tar xzf ~/%s -C %s && rm -f ~/%s" % (DEST, DEST, tgz, DEST, tgz))
         out.channel.recv_exit_status()
     _, so, se = client.exec_command(cmd, get_pty=False, timeout=int(os.environ.get("PT", "1800")))
     data = so.read()

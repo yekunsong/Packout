@@ -15,7 +15,9 @@ packout 解决的是**跨机器**：这台机器搬走、重装或卖掉之后�
 
 ```bash
 packout scan   --out ./out --root home=$HOME --root repo=/path/to/repo   # 只读扫描
-packout scan   --out ./out --root home=$HOME --with-sessions          # 连会话 transcript 一起带走
+packout scan   --out ./out --root home=$HOME                      # 默认 standard：配置+记忆，不带会话
+packout scan   --out ./out --root home=$HOME --preset full        # 连会话 transcript 一起带走
+packout scan   --out ./out --root home=$HOME --include agent --exclude history   # 细选
 packout report --out ./out --in ./out # 起一个只绑 127.0.0.1 的报告页
 packout export --src ./out --out ./pack   # 打成可校验的状态包（自动读 out/roots.json）
 packout export --src ./out --out ./pack --with-secrets --recipient age1…  # 凭据进 secrets.age
@@ -50,7 +52,8 @@ packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdi
 - `secret_ref` 只写在配置占位符里，不写进清单；因此不持密钥时无法校验引用有效性。
 - 未签名的包 `verify` 退出码是 **2**（`unsigned`）。P0 时代的 `hash-ok, unverified` 不再是终态。
 - MCP 的 `restore_plan` 只接 age identity；口令加密的包在 MCP 里拿不到计划（CLI 可以 `--passphrase`）。
-- `--with-sessions` 把 transcript / tool-results / subagents 的**原字节**打进包：这类文件在包里是**明文**，只有 ≤ 8 MiB 的条目会做 `secret_ref` 占位符替换，更大的直接流式复制；包可能大出数倍（单文件上限 1 GiB，超出跳过并告警），不随 `--with-secrets` 进 `secrets.age`。
+- 选择默认是 `--preset standard`（配置+记忆，不带会话）；`minimal` 只带配置，`full` 才带会话。`--include/--exclude` 可按条目 id、类别或层细选，被排除的条目在报告里单列原因。
+- `--preset full`（旧 `--with-sessions` 别名）把 transcript / tool-results / subagents 的**原字节**打进包：这类文件在包里是**明文**，只有 ≤ 8 MiB 的条目会做 `secret_ref` 占位符替换，更大的直接流式复制；包可能大出数倍（单文件上限 1 GiB，超出跳过并告警），不随 `--with-secrets` 进 `secrets.age`。
 
 ## 平台
 

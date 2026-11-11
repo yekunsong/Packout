@@ -217,3 +217,41 @@ func TestExtractSessionsOffStillDigestOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestExportWarnsOnHeaderSelectionMissingFromProfile(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, filepath.Join(root, "settings.json"), `{"a":1}`)
+	src := filepath.Join(root, "scan")
+	writeManifestOpts(t, filepath.Join(src, ManifestDirName), root, func(h *manifest.Header) {
+		h.Inputs.Options = &manifest.InputOptions{Selection: &manifest.Selection{
+			Preset: "standard", Include: []string{"sessions", "ghost-entry"},
+		}}
+	}, fileUnit(root, "settings", filepath.Join(root, "settings.json")))
+	prof := &profile.Profile{
+		Name: "p",
+		Entries: []*profile.Entry{
+			{ID: "settings", Kind: profile.KindFile, Root: "home", Path: "settings.json",
+				Extractor: profile.ExtractorRawRef, Secret: profile.SecretNone},
+			{ID: "sessions", Kind: profile.KindGlobGroup, Root: "home",
+				Paths: []string{"sessions/**"}, Sessions: true,
+				Extractor: profile.ExtractorDigest, Secret: profile.SecretNone},
+		},
+	}
+	out := filepath.Join(t.TempDir(), "pkg")
+	res, err := Export(Config{SourceDir: src, OutDir: out, Profile: prof, Roots: map[string]string{"home": root}})
+	if err != nil {
+		t.Fatalf("export must not fail on a stale header selection: %v", err)
+	}
+	found := false
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "ghost-entry") {
+			found = true
+		}
+		if strings.Contains(w, "sessions") {
+			t.Errorf("sessions exists in the profile but warned: %s", w)
+		}
+	}
+	if !found {
+		t.Fatalf("no warning for the missing header entry; warnings=%v", res.Warnings)
+	}
+}

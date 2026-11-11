@@ -118,7 +118,13 @@ func parseScan(ctx context.Context, args []string, stdout, stderr io.Writer) int
 	fs.StringVar(&cfg.out, "out", "", "输出目录（必填，无默认值）")
 	fs.BoolVar(&cfg.force, "force", false, "覆盖已存在且非空的 --out")
 	fs.BoolVar(&cfg.followSymlinks, "follow-symlinks", false, "跟随符号链接/联接点")
-	fs.BoolVar(&cfg.withSessions, "with-sessions", false, "逐文件导出会话 transcript/tool-results/subagents 原字节（包会大很多）")
+	fs.BoolVar(&cfg.withSessions, "with-sessions", false, "逐文件导出会话 transcript/tool-results/subagents 原字节（--preset full 的别名）")
+	fs.StringVar(&cfg.preset, "preset", "", "选择预设：minimal|standard|full（默认 standard=配置+记忆；full 另含会话内容）")
+	fs.StringVar(&cfg.include, "include", "", "额外包含，逗号分隔：entry id / 类别 / 层（L0…L5）")
+	fs.StringVar(&cfg.exclude, "exclude", "", "最后排除，逗号分隔：entry id / 类别 / 层（L0…L5）")
+	fs.StringVar(&cfg.sessionsSince, "sessions-since", "", "只带最近 N 天的会话：7d|30d|all（默认 all）")
+	fs.Var(&cfg.sessionsProj, "sessions-project", "只带该项目 slug 的会话（可重复）")
+	fs.IntVar(&cfg.sessionsMax, "sessions-max-per-project", 0, "每个项目最多保留 N 个最新会话（默认 0=不限）")
 	fs.BoolVar(&cfg.stableSalt, "stable-salt", false, "使用 ~/.config/packout/salt 的持久 salt")
 	fs.IntVar(&cfg.jobs, "jobs", 0, "并行哈希的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
@@ -340,7 +346,13 @@ func scanHelp(ref string) string {
   --root role=PATH     可重复；同一 role 多次出现自动编号 role#2
   --force              覆盖已存在且非空的 --out
   --follow-symlinks    跟随符号链接/联接点
-  --with-sessions      会话内容逐文件出行，导出保留原字节（包会大很多）
+  --with-sessions      会话内容逐文件出行，导出保留原字节（--preset full 的别名）
+  --preset P           选择预设 minimal|standard|full（默认 standard；full 才带会话内容）
+  --include LIST       逗号分隔地额外包含 entry id / 类别 / 层
+  --exclude LIST       逗号分隔地在最后排除 entry id / 类别 / 层
+  --sessions-since D   只带最近 7d/30d 的会话（默认 all）
+  --sessions-project S 只带该项目 slug 的会话（可重复）
+  --sessions-max-per-project N  每项目只保留 N 个最新会话（0=不限）
   --stable-salt        使用 ~/.config/packout/salt 的持久 salt
   --jobs N             并行哈希的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）
   --json               stdout 输出可解析的 JSON 摘要

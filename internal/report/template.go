@@ -94,13 +94,15 @@ footer{color:var(--muted);font-size:12px;margin:24px 0 8px;border-top:1px solid 
 <header>
   <h1>{{.Title}}</h1>
   <p class="sub">生成于 {{.Generated}} · 机器 {{.Machine}} · scan_id <span class="mono">{{.ScanID}}</span></p>
+  <p class="sub">本次选择：{{.SelectionText}}</p>
   <nav class="toc">
     <a href="#summary">摘要</a>
     <a href="#l5">L5 重登清单</a>
     <a href="#unversioned">未版本控制 L2/L3</a>
     <a href="#secrets">凭据位置</a>
     <a href="#reclaim">可再生体积</a>
-    <a href="#residual">残留项</a>
+    <a href="#residual">残留项</a>{{if .HasSkipped}}
+    <a href="#skipped">本次未带走</a>{{end}}
     {{if .HasDetails}}<a href="#details">结论与信号</a>{{end}}
     {{if .Notes}}<a href="#notes">扫描说明</a>{{end}}
   </nav>
@@ -254,6 +256,34 @@ footer{color:var(--muted);font-size:12px;margin:24px 0 8px;border-top:1px solid 
   {{end}}
   {{else}}<p class="muted">没有残留项（residual = 0）。</p>{{end}}
 </section>
+
+{{if .HasSkipped}}
+<section id="skipped" class="card">
+  <h2>本次未带走（{{len .SkippedSummary}} 类）</h2>
+  <p>下列条目或会话按选择规则被跳过，包与 manifest 里都没有它们的行。用 <span class="mono">--include sessions</span> 或 <span class="mono">--preset full</span> 可打开会话内容。</p>
+  <ul>
+  {{range .SkippedSummary}}<li>{{.Category}}：{{.Count}} 条</li>{{end}}
+  </ul>
+  {{if not .ShowSkippedDetails}}<p class="muted">默认选择，不逐条展开；使用 --preset/--include/--exclude 或会话过滤后这里会列出每个 id 与原因。</p>{{end}}
+  {{if .SkippedPages}}
+  {{range .SkippedPages}}
+  <details class="paged"{{if .Open}} open{{end}}>
+    <summary>{{if .Label}}{{.Label}}{{else}}全部条目{{end}}</summary>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>entry</th><th>类别</th><th>原因</th></tr></thead>
+        <tbody>
+        {{range .Rows}}
+          <tr><td class="mono">{{.Entry}}</td><td>{{.Category}}</td><td>{{.Reason}}</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </details>
+  {{end}}
+  {{end}}
+</section>
+{{end}}
 
 {{if .HasDetails}}
 <section id="details" class="card">

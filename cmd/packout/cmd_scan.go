@@ -9,6 +9,7 @@ import (
 	"runtime"
 
 	"packout/internal/manifest"
+	"packout/internal/profile"
 	"packout/internal/scan"
 )
 
@@ -19,6 +20,12 @@ type scanConfig struct {
 	force          bool
 	followSymlinks bool
 	withSessions   bool
+	preset         string
+	include        string
+	exclude        string
+	sessionsSince  string
+	sessionsProj   stringList
+	sessionsMax    int
 	stableSalt     bool
 	jobs           int
 	json           bool
@@ -54,6 +61,11 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 	if err != nil {
 		return r.usage("%v", err)
 	}
+	selection, err := profile.ParseSelection(p, cfg.preset, cfg.include, cfg.exclude,
+		cfg.sessionsSince, cfg.sessionsProj, cfg.sessionsMax, cfg.withSessions)
+	if err != nil {
+		return r.usage("%v", err)
+	}
 	if code, msg := checkOut(cfg.out, false, cfg.force); code != exitOK {
 		return r.fail(code, "%s", msg)
 	}
@@ -83,7 +95,8 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 		GOOS:           runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		FollowSymlinks: cfg.followSymlinks,
-		WithSessions:   cfg.withSessions,
+		WithSessions:   cfg.withSessions || selection.CarriesSessions(),
+		Selection:      selection,
 		Jobs:           cfg.jobs,
 		Tool:           "packout/" + version,
 		Salt:           salt,

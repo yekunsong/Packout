@@ -442,3 +442,57 @@ func TestLANBanner(t *testing.T) {
 		t.Error("LAN warning missing")
 	}
 }
+
+func TestReportListsSkippedEntries(t *testing.T) {
+	m := fixtureDoc()
+	m.Header.Inputs.Options = &manifest.InputOptions{Selection: &manifest.Selection{
+		Preset: "minimal", Include: []string{"skills"}, SessionsSince: "7d",
+	}}
+	m.Notes = append(m.Notes,
+		manifest.Note{Code: "selection_skipped", Entry: "projects-transcripts", Category: "sessions",
+			Detail: "preset minimal 未包含类别 sessions"},
+		manifest.Note{Code: "selection_skipped", Entry: "projects-transcripts", Category: "sessions",
+			Detail: "会话早于 --sessions-since 7d: /home/a/old.jsonl"},
+	)
+	html := renderString(t, m, Options{IncludeSignals: true})
+	for _, want := range []string{
+		`id="skipped"`, "本次未带走（1 类）", "sessions：2 条", "projects-transcripts",
+		"preset minimal 未包含类别 sessions", "本次选择：preset minimal；include skills；会话仅 7d 内",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("report lacks %q", want)
+		}
+	}
+	// The two skipped notes move out of the generic notes table.
+	if strings.Contains(html, `>selection_skipped<`) {
+		t.Error("selection_skipped still rendered in the notes table")
+	}
+}
+
+func TestReportDefaultSelectionSummarisesSkipped(t *testing.T) {
+	m := fixtureDoc()
+	m.Notes = append(m.Notes,
+		manifest.Note{Code: "selection_skipped", Entry: "projects-transcripts", Category: "sessions",
+			Detail: "preset standard 未包含类别 sessions"},
+	)
+	html := renderString(t, m, Options{})
+	for _, want := range []string{`id="skipped"`, "sessions：1 条", "--include sessions"} {
+		if !strings.Contains(html, want) {
+			t.Errorf("summary lacks %q", want)
+		}
+	}
+	if strings.Contains(html, "preset standard 未包含类别 sessions") {
+		t.Error("default selection expanded the skip reason rows")
+	}
+	if strings.Contains(html, `id="skipped"`) == false {
+		t.Fatal("skipped section missing")
+	}
+}
+
+func TestReportWithoutSelectionOmitsSkippedSection(t *testing.T) {
+	m := fixtureDoc()
+	html := renderString(t, m, Options{})
+	if strings.Contains(html, `id="skipped"`) {
+		t.Error("skipped section rendered without skipped notes")
+	}
+}

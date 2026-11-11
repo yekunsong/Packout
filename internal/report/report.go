@@ -136,16 +136,22 @@ type view struct {
 	ContainsSecrets bool
 	ContainsText    string
 
-	L5              []l5Row
-	UnversionedRows []basicRow
-	Secrets         []secretRow
-	SecretPages     []secretPage
-	SecretTruncated bool
-	ResidualRows    []basicRow
-	ResidualPages   []basicPage
-	DetailPages     []detailPage
-	Notes           []noteRow
-	HasDetails      bool
+	L5                 []l5Row
+	UnversionedRows    []basicRow
+	Secrets            []secretRow
+	SecretPages        []secretPage
+	SecretTruncated    bool
+	ResidualRows       []basicRow
+	ResidualPages      []basicPage
+	DetailPages        []detailPage
+	Notes              []noteRow
+	Skipped            []skipRow
+	SkippedPages       []skipPage
+	HasSkipped         bool
+	ShowSkippedDetails bool
+	SkippedSummary     []skipCount
+	SelectionText      string
+	HasDetails         bool
 }
 
 type signalView struct {
@@ -206,6 +212,25 @@ type noteRow struct {
 	Profile string
 	Entry   string
 	Detail  string
+}
+
+// skipRow is one entry the scan deliberately left out ("本次未带走").
+type skipRow struct {
+	Entry    string
+	Category string
+	Reason   string
+}
+
+type skipPage struct {
+	Label string
+	Open  bool
+	Rows  []skipRow
+}
+
+// skipCount is one category line of the skipped summary.
+type skipCount struct {
+	Category string
+	Count    int
 }
 
 type basicPage struct {
@@ -585,11 +610,68 @@ func buildView(m *manifest.Doc, opts Options) *view {
 	v.ResidualPages = paginateBasic(v.ResidualRows)
 
 	for _, n := range m.Notes {
+		if n.Code == "selection_skipped" {
+			v.Skipped = append(v.Skipped, skipRow{
+				Entry: n.Entry, Category: n.Category, Reason: n.Detail,
+			})
+			continue
+		}
 		v.Notes = append(v.Notes, noteRow{
 			Code: n.Code, Profile: n.Profile, Entry: n.Entry, Detail: n.Detail,
 		})
 	}
+	v.HasSkipped = len(v.Skipped) > 0
+	v.SelectionText = selectionText(m)
+	v.ShowSkippedDetails = m.Header.Inputs.Options != nil && m.Header.Inputs.Options.Selection != nil
+	byCat := make(map[string]int)
+	for _, r := range v.Skipped {
+		byCat[r.Category]++
+	}
+	cats := make([]string, 0, len(byCat))
+	for c := range byCat {
+		cats = append(cats, c)
+	}
+	sort.Strings(cats)
+	for _, c := range cats {
+		v.SkippedSummary = append(v.SkippedSummary, skipCount{Category: c, Count: byCat[c]})
+	}
+	if v.ShowSkippedDetails {
+		v.SkippedPages = paginateSkips(v.Skipped)
+	} else {
+		// The default selection skips every session path; a count per
+		// category beats thousands of rows.
+		v.Skipped = nil
+	}
 	return v
+}
+
+// selectionText summarises inputs.options.selection for the report banner.
+func selectionText(m *manifest.Doc) string {
+	if m.Header.Inputs.Options == nil || m.Header.Inputs.Options.Selection == nil {
+		return "standard（配置 + 记忆）"
+	}
+	s := m.Header.Inputs.Options.Selection
+	preset := s.Preset
+	if preset == "" {
+		preset = "standard"
+	}
+	out := "preset " + preset
+	if len(s.Include) > 0 {
+		out += "；include " + strings.Join(s.Include, ", ")
+	}
+	if len(s.Exclude) > 0 {
+		out += "；exclude " + strings.Join(s.Exclude, ", ")
+	}
+	if s.SessionsSince != "" && s.SessionsSince != "all" {
+		out += "；会话仅 " + s.SessionsSince + " 内"
+	}
+	if len(s.SessionsProjects) > 0 {
+		out += "；项目 " + strings.Join(s.SessionsProjects, ", ")
+	}
+	if s.SessionsMaxPerProject > 0 {
+		out += "；每项目最多 " + strconv.Itoa(s.SessionsMaxPerProject) + " 个"
+	}
+	return out
 }
 
 func hasSecret(u *manifest.Unit) bool {
@@ -869,6 +951,28 @@ func paginateBasic(rows []basicRow) []basicPage {
 			end = len(rows)
 		}
 		out = append(out, basicPage{
+			Label: fmt.Sprintf("第 %d–%d 条（共 %d 条）", start+1, end, len(rows)),
+			Open:  start == 0,
+			Rows:  rows[start:end],
+		})
+	}
+	return out
+}
+
+func paginateSkips(rows []skipRow) []skipPage {
+	if len(rows) == 0 {
+		return nil
+	}
+	if len(rows) <= pageSize {
+		return []skipPage{{Open: true, Rows: rows}}
+	}
+	var out []skipPage
+	for start := 0; start < len(rows); start += pageSize {
+		end := start + pageSize
+		if end > len(rows) {
+			end = len(rows)
+		}
+		out = append(out, skipPage{
 			Label: fmt.Sprintf("第 %d–%d 条（共 %d 条）", start+1, end, len(rows)),
 			Open:  start == 0,
 			Rows:  rows[start:end],

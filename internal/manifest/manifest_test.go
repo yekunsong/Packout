@@ -393,3 +393,68 @@ func TestHeaderWithSessionsMustBeBool(t *testing.T) {
 		t.Fatalf("err = %v, want E-MAN-071", err)
 	}
 }
+
+func TestHeaderSelectionRoundTrip(t *testing.T) {
+	hdr := newTestHeader(0)
+	hdr.Inputs.Options = &InputOptions{Selection: &Selection{
+		Preset: "full", Include: []string{"sessions"}, Exclude: []string{"skills"},
+		SessionsSince: "7d", SessionsProjects: []string{"D--x"},
+		SessionsMaxPerProject: 3,
+	}}
+	out := EncodeHeader(&hdr)
+	for _, want := range []string{
+		`"selection":{"preset":"full","include":["sessions"],"exclude":["skills"]`,
+		`"sessions_since":"7d","sessions_project":["D--x"],"sessions_max_per_project":3}`,
+	} {
+		if !bytes.Contains(out, []byte(want)) {
+			t.Fatalf("header lacks %s: %s", want, out)
+		}
+	}
+	var back Header
+	if err := json.Unmarshal(out, &back); err != nil {
+		t.Fatal(err)
+	}
+	sel := back.Inputs.Options.Selection
+	if sel == nil || sel.Preset != "full" || len(sel.Include) != 1 || sel.SessionsMaxPerProject != 3 {
+		t.Fatalf("selection lost on decode: %+v", back.Inputs.Options)
+	}
+
+	// Default selections stay byte-identical to the old header.
+	hdr.Inputs.Options = &InputOptions{}
+	if bytes.Contains(EncodeHeader(&hdr), []byte(`"selection"`)) {
+		t.Fatal("selection written when nil")
+	}
+}
+
+func TestHeaderSelectionRejectsBadShape(t *testing.T) {
+	hdr := newTestHeader(0)
+	hdr.Inputs.Options = &InputOptions{Selection: &Selection{Preset: "huge"}}
+	var back Header
+	if err := json.Unmarshal(EncodeHeader(&hdr), &back); err == nil ||
+		!strings.Contains(err.Error(), "E-MAN-071") {
+		t.Fatalf("unknown preset err = %v, want E-MAN-071", err)
+	}
+	hdr.Inputs.Options.Selection = &Selection{Preset: "standard", SessionsMaxPerProject: -1}
+	if err := json.Unmarshal(EncodeHeader(&hdr), &back); err == nil ||
+		!strings.Contains(err.Error(), "E-MAN-071") {
+		t.Fatalf("negative max err = %v, want E-MAN-071", err)
+	}
+}
+
+func TestNoteCategoryRoundTrip(t *testing.T) {
+	n := &Note{ScanID: "01JQ8Z3K7M2V9T4R6W8X0Y2B4C", Code: "selection_skipped", Entry: "skills", Category: "skill", Detail: "preset minimal 未包含类别 skill"}
+	raw := EncodeNote(n)
+	if !bytes.Contains(raw, []byte(`"category":"skill"`)) {
+		t.Fatalf("category not encoded: %s", raw)
+	}
+	var back Note
+	if err := json.Unmarshal(raw, &back); err != nil {
+		t.Fatal(err)
+	}
+	if back.Category != "skill" {
+		t.Fatalf("category lost: %+v", back)
+	}
+	if _, ok := back.Extra["category"]; ok {
+		t.Fatal("category landed in Extra")
+	}
+}

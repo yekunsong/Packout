@@ -651,6 +651,14 @@ URI scheme 与探测方式的对应固定为：`keychain:`→`keychain`、`wincr
 - `open_as` 声明引擎怎样打开内容：`none`（默认，只按字节读）、`text`（按文本解码，供 `template`/`keys-only`）、`sqlite-ro`（以 SQLite `mode=ro` 打开）。`sqlite-ro` 只允许用于 `file` / `glob-group`（`E-PRF-071`）。
 - `side_effects` 声明引擎只读操作**预期会改变**目标树的效果。目前只有 `shm_created`，其**前提是 `open_as: sqlite-ro`**：只按字节哈希不会建 `-shm`，声明 `shm_created` 却没有 `sqlite-ro` 即 `E-PRF-071`。扫描前记下目录项，扫描后若 `-shm` 新建且已声明，不视为不变式违例；未声明却观测到变化时记 `side_effect_unexpected` note。未知值 `E-PRF-061`。
 
+### 5.12 选择类别
+
+`scan` 的 `--preset` / `--include` / `--exclude` 按**类别**选择条目。类别由 entry 派生、不写进 profile：`sessions`（`sessions: true` 或 id 含 `session`）优先于其它；其次是 `memory`（id 含 `memory`、`claude-md`，或以 `-md` 结尾）；再按 id 子串取 `skill` / `agent` / `command` / `rules` / `history` / `plugin`；其余与所有 `catch-all` 为 `config`。元素匹配顺序为 entry id、类别、层（`L0`…`L5`），类别接受复数别名（`skills` 等）。
+
+`minimal` 只含 `config`；`standard`（默认）含除会话外的全部类别（`config`、`memory`、`skill`、`agent`、`command`、`rules`、`history`、`plugin`，保持历史默认不回归）；`full` 另含 `sessions`。因此默认只需为会话内容显式开口。`--include` 在预设之上加，`--exclude` 最后减；未知 preset 或未知元素是用法错误（退出 3），必须列出可用值。
+
+未选中的条目在扫描时不产生 Unit，但每个 entry 恰记一条 `selection_skipped` note 并带原因。会话类另受 `--sessions-since`（mtime 早者跳过）、`--sessions-project`（不在项目列表者跳过）、`--sessions-max-per-project`（每项目按 mtime 新→旧保留，其余跳过并计数）约束。选择只在扫描期生效并写进 header（仅非默认时）；`export` / `report` 只读 header，profile 不再匹配时给警告不失败。
+
 ---
 
 ## 6. selftest

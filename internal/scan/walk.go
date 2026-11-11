@@ -25,6 +25,18 @@ func (s *scanner) declarePass(ctx context.Context) {
 		if !s.entryApplies(e) {
 			continue
 		}
+		if s.cfg.Selection != nil {
+			if ok, reason := s.cfg.Selection.Included(e); !ok {
+				// Every unselected entry is explained once, even when it
+				// matches nothing on disk: the reason is a property of the
+				// declaration, not of the corpus.
+				s.addNote(manifest.Note{
+					Code: "selection_skipped", Entry: e.ID,
+					Category: profile.CategoryOf(e), Detail: reason,
+				})
+				continue
+			}
+		}
 		if ctx.Err() != nil {
 			s.complete = false
 			return
@@ -83,6 +95,7 @@ func (s *scanner) declarePass(ctx context.Context) {
 			}
 		}
 	}
+	s.applySessionSelection()
 	s.selectAndProduce(ctx, matches)
 }
 

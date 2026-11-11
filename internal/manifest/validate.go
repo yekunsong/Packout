@@ -1132,15 +1132,17 @@ func actionAllowed(layer, action string) bool {
 // the file_id fallback.
 func uniquenessKey(u *Unit) string {
 	part := u.PartID
+	origin := ""
 	if u.OriginPathKey != nil {
-		// Machine-derived rows (uncovered or wildcard part selections) are
-		// distinguished by their source key, not by the physical path.
-		return strings.Join([]string{u.Profile, u.Entry, part, *u.OriginPathKey}, "\x00")
+		// Machine-derived rows share a physical path with their siblings;
+		// the source key is part of their identity too.
+		origin = *u.OriginPathKey
 	}
 	if u.FileID != nil && u.FileID.VolumeSerial != "" && u.FileID.Index != "" {
-		return strings.Join([]string{u.Profile, u.Entry, part, u.FileID.VolumeSerial, u.FileID.Index}, "\x00")
+		return strings.Join([]string{u.Profile, u.Entry, part, origin, u.FileID.VolumeSerial, u.FileID.Index}, "\x00")
 	}
-	return strings.Join([]string{u.Profile, u.Entry, part, u.PathKey}, "\x00")
+	return strings.Join([]string{u.Profile, u.Entry, part, origin, u.PathKey}, "\x00")
+
 }
 
 func decimals(raw string) int {

@@ -395,3 +395,52 @@ func TestExportWithSecretsIdentityInsideOutWarns(t *testing.T) {
 		t.Fatalf("no identity warning: %q", stderr)
 	}
 }
+
+func TestScanSelectionUnknownValuesExitUsage(t *testing.T) {
+	inst := fixtureTree(t)
+	work := t.TempDir()
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--preset", "huge"}, "minimal"},
+		{[]string{"--include", "ghost"}, "settings-global"},
+		{[]string{"--exclude", "ghost"}, "settings-global"},
+		{[]string{"--sessions-since", "3w"}, "30d"},
+	}
+	for i, tc := range cases {
+		out := filepath.Join(work, "out"+string(rune('a'+i)))
+		args := append([]string{"scan", "--out", out}, tc.args...)
+		args = append(args, rootArgs(inst)...)
+		code, _, stderr := run(t, args...)
+		if code != exitUsage {
+			t.Errorf("%v: code = %d, want 3", tc.args, code)
+		}
+		if !strings.Contains(stderr, tc.want) {
+			t.Errorf("%v: stderr lacks %q: %q", tc.args, tc.want, stderr)
+		}
+		if _, err := os.Stat(out); err == nil {
+			t.Errorf("%v: --out created on usage error", tc.args)
+		}
+	}
+}
+
+func TestScanSelectionHeaderAndPreset(t *testing.T) {
+	inst := fixtureTree(t)
+	work := t.TempDir()
+	out := filepath.Join(work, "out")
+	code, _, stderr := run(t, append([]string{"scan", "--out", out, "--preset", "minimal", "--include", "sessions", "--exclude", "skills", "--quiet"}, rootArgs(inst)...)...)
+	if code != exitOK {
+		t.Fatalf("scan: code=%d stderr=%q", code, stderr)
+	}
+	data, err := os.ReadFile(filepath.Join(out, "manifest", "manifest.0001.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := strings.SplitN(string(data), "\n", 2)[0]
+	for _, want := range []string{`"preset":"minimal"`, `"include":["sessions"]`, `"exclude":["skill"]`} {
+		if !strings.Contains(first, want) {
+			t.Errorf("header lacks %s: %s", want, first)
+		}
+	}
+}

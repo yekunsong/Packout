@@ -453,3 +453,12 @@ P1 的安全门槛比 P0 高一个量级：P0 只读，P1 开始往磁盘写字�
 
 **行为变化（需知晓）**：`extractConfig` 的重读/渲染错误由"告警跳过"改为**中止导出**。并发下部分成功不再有意义——半个包比明确失败更难查。`keys-only` 遇到非 JSON 同样中止。
 **独立复核（主会话）**：远端全量 vet/test 与 `-race`（scan 129 s、pack 49 s）全绿；同源包 jobs1 与 jobs32 的 SIG 与文件哈希逐字节相等；跨两次独立 scan 的正文在归一化 scan_id/时间戳后相等；Windows build/vet 绿。
+
+## D-050 预设与包含排除
+通过。默认轻、显式重：`scan --preset minimal|standard|full`，`--include`/`--exclude` 以 entry id、类别（`config|memory|sessions|skill|agent|command|rules|history|plugin`，接受复数）或层 `L0…L5` 为元素，include 在预设上加、exclude 最后减，未知值退出 3 并列出可用值。`--with-sessions` 保留为 `--preset full` 的别名；显式给 preset 时改为追加 `include: sessions`，两者不冲突。
+
+- `minimal` = 配置；`standard`（默认）= 除会话外全部（配置 + 记忆 + skill/agent/command/rules/history/plugin，保持历史默认不回归）；`full` = standard + 会话内容。类别由 entry 派生（`sessions` 标记优先，其次 `memory`，再按路径 `.claude/skills|agents|commands|plugins` 与 id 兜底，其余及 catch-all 为 `config`），不写进 profile。
+- 选择只在 scan 期生效：未选中的 entry 不出行，但每条恰记一次 `selection_skipped` note（带 `category` 与原因）；会话再受 `--sessions-since`/`--sessions-project`/`--sessions-max-per-project` 按 path 过滤并逐条记 note。
+- 选择写进 `inputs.options.selection`，仅非默认时写；`standard` 且无过滤时整个对象省略，既有 golden 头不变。`export`/`report` 只读 header，不重新选择；header 选择元素与当前 profile 不匹配时 export 给警告不失败。
+- report 新增“本次未带走”段：默认选择只按类别给计数与“用 --include sessions/--preset full 打开”提示，非默认选择才逐条列 entry/category/原因；报告头部另起一行写明本次选择。`selection_skipped` 从通用 notes 表移出。
+- 包内会话仍走既有明文/大小上限规则；`include sessions` 与 `--preset full` 一样自动置 `options.with_sessions`。

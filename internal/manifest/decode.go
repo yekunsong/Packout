@@ -528,13 +528,76 @@ func decodeInputs(raw json.RawMessage) (Inputs, error) {
 				return in, fmt.Errorf("E-MAN-071: inputs.options.with_sessions must be a boolean: %w", err)
 			}
 		}
-		opt.Extra, opt.extraOrder = unknowns(om, oorder, map[string]bool{"follow_symlinks": true, "with_sessions": true})
+		if r, ok := om["selection"]; ok && !isJSONNull(r) {
+			sel, serr := decodeSelection(r)
+			if serr != nil {
+				return in, serr
+			}
+			opt.Selection = sel
+		}
+		opt.Extra, opt.extraOrder = unknowns(om, oorder, map[string]bool{
+			"follow_symlinks": true, "with_sessions": true, "selection": true,
+		})
 		in.Options = opt
 	}
 	in.Extra, in.extraOrder = unknowns(m, order, map[string]bool{
 		"secret_salt_mode": true, "secret_salt": true, "profiles": true, "options": true,
 	})
 	return in, nil
+}
+
+// decodeSelection reads inputs.options.selection (manifest §3.1).
+func decodeSelection(raw json.RawMessage) (*Selection, error) {
+	m, order, err := decodeRawObject(raw)
+	if err != nil {
+		return nil, fmt.Errorf("E-MAN-071: inputs.options.selection must be an object: %w", err)
+	}
+	sel := &Selection{}
+	if r, ok := m["preset"]; ok {
+		if sel.Preset, err = decodeString(r); err != nil {
+			return nil, fmt.Errorf("E-MAN-071: selection.preset: %w", err)
+		}
+		switch sel.Preset {
+		case "minimal", "standard", "full":
+		default:
+			return nil, fmt.Errorf("E-MAN-071: selection.preset %q is unknown", sel.Preset)
+		}
+	}
+	if r, ok := m["include"]; ok {
+		if sel.Include, err = decodeStrings(r); err != nil {
+			return nil, fmt.Errorf("E-MAN-071: selection.include: %w", err)
+		}
+	}
+	if r, ok := m["exclude"]; ok {
+		if sel.Exclude, err = decodeStrings(r); err != nil {
+			return nil, fmt.Errorf("E-MAN-071: selection.exclude: %w", err)
+		}
+	}
+	if r, ok := m["sessions_since"]; ok {
+		if sel.SessionsSince, err = decodeString(r); err != nil {
+			return nil, fmt.Errorf("E-MAN-071: selection.sessions_since: %w", err)
+		}
+	}
+	if r, ok := m["sessions_project"]; ok {
+		if sel.SessionsProjects, err = decodeStrings(r); err != nil {
+			return nil, fmt.Errorf("E-MAN-071: selection.sessions_project: %w", err)
+		}
+	}
+	if r, ok := m["sessions_max_per_project"]; ok {
+		if sel.SessionsMaxPerProject, err = decodeInt(r); err != nil {
+			return nil, fmt.Errorf("E-MAN-071: selection.sessions_max_per_project: %w", err)
+		}
+		if sel.SessionsMaxPerProject < 0 {
+			return nil, fmt.Errorf("E-MAN-071: selection.sessions_max_per_project must be >= 0")
+		}
+	}
+	sel.Extra, sel.extraOrder = unknowns(m, order, selectionKnownFields)
+	return sel, nil
+}
+
+var selectionKnownFields = map[string]bool{
+	"preset": true, "include": true, "exclude": true, "sessions_since": true,
+	"sessions_project": true, "sessions_max_per_project": true,
 }
 
 func decodeRoot(raw json.RawMessage) (Root, error) {
@@ -966,8 +1029,8 @@ func (n *Note) UnmarshalJSON(b []byte) error {
 		dst *string
 	}{
 		{"type", &n.Type}, {"scan_id", &n.ScanID}, {"code", &n.Code},
-		{"profile", &n.Profile}, {"entry", &n.Entry}, {"part_id", &n.PartID},
-		{"detail", &n.Detail},
+		{"profile", &n.Profile}, {"entry", &n.Entry}, {"category", &n.Category},
+		{"part_id", &n.PartID}, {"detail", &n.Detail},
 	} {
 		if v, ok := m[f.key]; ok {
 			if *f.dst, err = decodeString(v); err != nil {
@@ -994,7 +1057,8 @@ func (n Note) MarshalJSON() ([]byte, error) { return EncodeNote(&n), nil }
 
 var noteKnownFields = map[string]bool{
 	"type": true, "scan_id": true, "code": true, "profile": true, "entry": true,
-	"part_id": true, "detail": true, "companions": true, "side_effects": true,
+	"category": true, "part_id": true, "detail": true, "companions": true,
+	"side_effects": true,
 }
 
 // UnmarshalJSON decodes a footer.

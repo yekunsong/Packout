@@ -47,9 +47,12 @@ type Config struct {
 	// instead of by max_bytes_total/aggregate_above, and records the marker
 	// in the header so export keeps their raw bytes.
 	WithSessions bool
-	ShardUnits   int
-	ShardBytes   int64
-	Tool         string
+	// Selection decides which entries become units. Nil means "take every
+	// entry" (the pre-selection behaviour, used by tests and embedders).
+	Selection  *profile.Selection
+	ShardUnits int
+	ShardBytes int64
+	Tool       string
 }
 
 // RootBinding is one --root role=PATH instance.
@@ -313,6 +316,20 @@ func (s *scanner) header() manifest.Header {
 			Origin: origin, Path: r.path, Profile: s.cfg.Profile.Name,
 		}
 	}
+	opts := &manifest.InputOptions{
+		FollowSymlinks: s.cfg.FollowSymlinks,
+		WithSessions:   s.cfg.WithSessions,
+	}
+	if sel := s.cfg.Selection; sel != nil && !sel.IsDefault() {
+		opts.Selection = &manifest.Selection{
+			Preset:                sel.Preset,
+			Include:               append([]string(nil), sel.Include...),
+			Exclude:               append([]string(nil), sel.Exclude...),
+			SessionsSince:         sel.SessionsSince,
+			SessionsProjects:      append([]string(nil), sel.SessionsProjects...),
+			SessionsMaxPerProject: sel.SessionsMaxPerProject,
+		}
+	}
 	return manifest.Header{
 		ManifestVersion: manifest.Version,
 		Tool:            tool,
@@ -324,10 +341,7 @@ func (s *scanner) header() manifest.Header {
 				Name: s.cfg.Profile.Name, Version: profileVersion(s.cfg.Profile),
 				SHA256: profileDigest(s.cfg.Profile),
 			}},
-			Options: &manifest.InputOptions{
-				FollowSymlinks: s.cfg.FollowSymlinks,
-				WithSessions:   s.cfg.WithSessions,
-			},
+			Options: opts,
 		},
 		ShardUnits: s.cfg.ShardUnits,
 		ShardBytes: s.cfg.ShardBytes,

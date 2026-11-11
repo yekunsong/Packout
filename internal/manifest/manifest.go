@@ -166,7 +166,7 @@ var noteCodeOrder = []string{
 	"part_uncovered", "binary_presence_only", "content_not_read", "companion_missing",
 	"target_duplicate", "side_effect_unexpected", "priority_tie",
 	"residual_deduplicated", "depth_truncated", "root_unresolved", "empty_glob",
-	"ads_stream",
+	"ads_stream", "selection_skipped",
 }
 
 // Header is the first line of the manifest's first shard (§3.1).
@@ -250,6 +250,24 @@ type InputOptions struct {
 	// WithSessions marks a scan made with --with-sessions: session-flagged
 	// entries were emitted per file and export must keep their raw bytes.
 	WithSessions bool
+	// Selection records a non-default preset/include/exclude/session filter
+	// choice. Consumers (export, report) execute it from the header and never
+	// re-select. Default selections omit it entirely.
+	Selection *Selection
+
+	Extra      map[string][]byte
+	extraOrder []string
+}
+
+// Selection is the header form of the scan's "what to carry" choice
+// (manifest §3.1). Only non-default fields are written.
+type Selection struct {
+	Preset                string
+	Include               []string
+	Exclude               []string
+	SessionsSince         string
+	SessionsProjects      []string
+	SessionsMaxPerProject int
 
 	Extra      map[string][]byte
 	extraOrder []string
@@ -415,6 +433,7 @@ type Note struct {
 	Code        string
 	Profile     string
 	Entry       string
+	Category    string
 	PartID      string
 	Detail      string
 	Companions  []string
