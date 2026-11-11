@@ -236,6 +236,17 @@ func TestInitInteractiveRejectsRoot(t *testing.T) {
 	}
 }
 
+func TestInitRoleOrder(t *testing.T) {
+	cands := map[string]string{
+		"zzz": ".", "repo": ".", "appdata": ".", "home": ".", "localappdata": ".", "aaa": ".",
+	}
+	got := orderedInitRoles(cands)
+	want := []string{"home", "repo", "appdata", "localappdata", "aaa", "zzz"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("order=%v, want %v", got, want)
+	}
+}
+
 func doctorJSON(t *testing.T, args ...string) (int, doctorSummary) {
 	t.Helper()
 	code, stdout, stderr := run(t, append([]string{"doctor", "--json"}, args...)...)

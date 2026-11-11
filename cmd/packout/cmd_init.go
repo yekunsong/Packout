@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"filippo.io/age"
@@ -67,7 +68,7 @@ func runInit(ctx context.Context, cfg initConfig, stdout, stderr io.Writer) int 
 	// swallow the remaining buffered answers on its first Read.
 	answers := bufio.NewReader(initStdin)
 	accepted := map[string]string{}
-	for _, role := range sortedKeys(cands) {
+	for _, role := range orderedInitRoles(cands) {
 		p := cands[role]
 		if !cfg.yes {
 			fmt.Fprintf(stderr, "packout: 把 %s 根 %s 写进配置？[Y/n] ", role, p)
@@ -194,6 +195,32 @@ func detectInitRoots() map[string]string {
 		}
 	}
 	return out
+}
+
+// initRoleOrder fixes the prompt order across platforms so a scripted answer
+// stream means the same thing on every OS. Unknown future roles are appended
+// alphabetically.
+var initRoleOrder = []string{"home", "repo", "appdata", "localappdata"}
+
+func orderedInitRoles(cands map[string]string) []string {
+	out := make([]string, 0, len(cands))
+	for _, role := range initRoleOrder {
+		if _, ok := cands[role]; ok {
+			out = append(out, role)
+		}
+	}
+	known := map[string]bool{}
+	for _, role := range initRoleOrder {
+		known[role] = true
+	}
+	extra := make([]string, 0, len(cands))
+	for role := range cands {
+		if !known[role] {
+			extra = append(extra, role)
+		}
+	}
+	sort.Strings(extra)
+	return append(out, extra...)
 }
 
 // confirm reads one answer line; empty or EOF means yes, matching the [Y/n]
