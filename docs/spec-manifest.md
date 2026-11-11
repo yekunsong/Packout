@@ -143,7 +143,7 @@ header 必填：`manifest_version`、`scan_id`（ULID）、`scan_segment`、`sta
 | `open_as` | 否 | enum | `none` / `text` / `sqlite-ro`；内容的打开方式，`shm_created` 的前提，见 §4.12 |
 | `opaque_content` | 否 | bool | 内容未被解析，仅记录存在性；默认 false，见 §5.2 |
 | `link_target` | 否 | string | 仅链接项；根外链接按磁盘上的原样保留相对形式，不绝对化（`D-015` 第 7 条） |
-| `secret_ref` | 否 | string | 仅 RESTORE 项，见 §9 |
+| `secret_ref` | 否 | string | 仅 RESTORE 项的**目标**形态；P1 尚未写出，见 §9 第 4 条、§9.2 |
 | `notes` | 否 | string | 单行说明，≤ 512 字节 |
 
 `cid`/`size_*`/`mtime`/`file_id`/`fingerprint`/`owner`/`acl` 在 named-location 上允许为 `null`；其他 kind 必填或 null（不可得），不得省略键（`owner`/`acl`/`size_estimated` 可省略，缺省即 null/false）。`path_semantics` 必填；`derived_from` 在 `literal` 上写 `null`，不得省略键。可选字段按语义省略：`part_id`、`origin`/`origin_path_key`、`companions`、`side_effects`、`open_as`、`needed_by`、`notes` 等无值时不写键；`owner`/`acl` 的显式 `null` 在写回时省略（P0 无写回，导出原样拷贝，不改写，`D-027` 第 3 条）。
@@ -413,7 +413,8 @@ manifest 只记**位置与指纹**，`secrets.age` 只装**密文**。硬规则�
 3. `fingerprint` = `sha256(secret_value + scan_salt)`。salt 有且只有两种模式，由 header 的 `inputs.secret_salt_mode` 标明；两次扫描模式不同或 salt 不同，指纹即不可比，报告不得合并去重（`D-011` 第 3 条）。
    - `random`（默认）：每次扫描随机 16 字节，存于 `inputs.secret_salt`（非密，32 个十六进制字符）。同一扫描内相同密钥得到相同指纹，可去重；跨扫描不可比。
    - `stable`：`--stable-salt` 打开，读 `~/.config/packout/salt`（不存在时以 0600 随机创建，此后不轮换），跨扫描可去重。salt 值仍写进 header。
-4. `secret_ref` 仅在导出 RESTORE 命中后出现，格式 `secrets.age#<hit_id>`；`hit_id` = `"h_"` + Crockford Base32(sha256(`cid` + `\0` + `locator` + `\0` + 值指纹) 前 96 位) 的 20 个字符，与 `unit_id` 无关（`D-027` 第 14 条）。`cid` 为 null 时回落 `unit_id` 并在 note 标 `hit_id_fallback`。未导出时字段缺失，`verify` 只校验非空 `secret_ref` 的指向存在（`D-011` 第 6 条）。
+4. `secret_ref` 的**目标形态**是 `secrets.age#<hit_id>`，`hit_id` = `"h_"` + Crockford Base32(sha256(`cid` + ` ` + `locator` + ` ` + 值指纹) 前 96 位) 的 20 个字符，与 `unit_id` 无关（`D-027` 第 14 条）。
+   **P1 现状（`D-045` 第 1 条）**：manifest 行里**还不写** `secret_ref`；引用只出现在 `config/` 的文本占位符里，见 §9.2。字段保留，允许缺失。
 5. `manifest.jsonl` 与 `config/` 必须能在没有 `secrets.age` 时单独还原；因此 `config/` 中的模板化结果也只能含脱敏占位。
 6. `RELOGIN` 命中不产生 `secret_ref`，只进报告 L5 清单与 `proposed_action: relogin`。
 7. 报告、日志、note 同样遵守第 1 条；调试输出若打印 Unit，只能打印脱敏后的结构。
@@ -425,6 +426,32 @@ manifest 只记**位置与指纹**，`secrets.age` 只装**密文**。硬规则�
 - 报告页 token 可放 URL fragment，服务端另接受 `Authorization` 头。403 bootstrap 页把 fragment 转到 query 再重载的两段式接受，但 bootstrap 页不得含任何数据（Unit、计数、路径、指纹都不出现），测试必须断言（`D-029` 第 3 条）。
 - CSP nonce 由内容派生以保持 golden 稳定；它只授权内联静态脚本，不承担鉴权。报告不自动请求外部子资源（`D-029` 第 4 条）。
 - CLI 验收清单必须包含：`report` 的 `IncludeSignals` 零值为 false，CLI 必须显式传 `true` 才输出 signals；不得把零值当 true（`D-029` 第 5 条）。
+
+### 9.2 占位符与加密索引（`secrets.age`）
+
+`config/` 中被识别为 RESTORE 的值不落明文，替换为：
+
+```
+«secret:secrets.age#h_<20 个 Crockford Base32 字符>»
+```
+
+- 前缀 `«secret:`、结尾 `»` 均为固定串；`hit_id` 生成同 §9 第 4 条。
+- 无密钥时文件仍是合法文本，人可直接看出"这里有一个凭据"。
+- `secrets.age` 是 age 密文（收件人模式或口令模式，`D-041`），明文是一个 JSON 索引：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `format` | string | 恒为 `packout-secrets` |
+| `format_version` | int | 当前为 1；形状变更时递增 |
+| `entries[].ref` | string | `secrets.age#h_…` |
+| `entries[].class` | string | 当前恒为 `restore` |
+| `entries[].value` | string | 明文值（UTF-8；二进制值按原字节转字符串） |
+| `entries[].sources[]` | array | `path`（包内相对路径）+ `locator`，同一值在多处出现时全部列出 |
+
+- `entries` 与 `entries[].sources` 都按字典序排序，同样的输入得到相同明文索引（age 文件头仍随机）。
+- 无 profile、无命中时仍写一个加密的空索引。
+- 索引的 `ref` 集合必须与 `config/` 中出现的全部占位符一一对应；restore 缺项即 `missing_secret`。
+- **已知缺口**：manifest 不记 `secret_ref`，因此 `verify` 在无密钥时无法校验占位符指向是否有效（`D-045` 第 1 条）。
 
 ---
 
@@ -508,7 +535,7 @@ manifest 只记**位置与指纹**，`secrets.age` 只装**密文**。硬规则�
 | `E-MAN-041` | error | footer 的 `units` 与实际行数不符 |
 | `E-MAN-042` | error | `scan_segment.first_shard` 与父段已封分片数不连续 |
 | `E-MAN-043` | error | `inputs.secret_salt_mode` 缺失或非法 |
-| `E-MAN-050` | error | `secret_ref` 格式非法或指向不存在的 hit |
+| `E-MAN-050` | error | `secret_ref` 格式非法或指向不存在的 hit（P1 尚无写出方，缺失不判错） |
 | `E-MAN-051` | error | `owner` / `acl` 非 null 但结构或枚举非法 |
 | `E-MAN-052` | error | `part_id` 不是该 entry 声明的 part，或 entry 有 parts 却缺 `part_id`（`part_missing` 的单行 entry Unit 与 `uncovered` 行除外） |
 | `E-MAN-053` | error | 聚合 Unit 的 `secret.class` 与后代并集不符、`hits` 非空，或 `contains_secret`/`may_contain_secret` 缺字段或与后代重算结果不符 |
@@ -571,7 +598,7 @@ manifest 只记**位置与指纹**，`secrets.age` 只装**密文**。硬规则�
 |---|---|---|
 | `E-MAN-052` / `E-MAN-029` / `E-MAN-053` / `E-MAN-054` | scan / classify 在产出行时按后代集合重算 | 只校验字段存在、类型、枚举、`fingerprint.scope: aggregate` 等结构；后代集合不可得时不做语义重算 |
 | `E-MAN-066` | scan 保留磁盘原样 | 只比较 `link_target` 是否仍为相对形式，不验证目标存在或可解析 |
-| `E-MAN-050` | export 生成 `secret_ref` | 只校验非空 `secret_ref` 的语法与指向在 `secrets.age` 索引中存在，不解密、不校验内容 |
+| `E-MAN-050` | export 生成 `secret_ref` | 只校验非空 `secret_ref` 的语法与指向在 `secrets.age` 索引中存在，不解密、不校验内容；P1 无写出方，缺失不判错 |
 | `E-MAN-042` | scan 续扫时计算段序号 | 只比较 `first_shard` 与父段 index 的已封分片数；父段缺失时无法判定 |
 | `E-MAN-068` | 引擎注入恰一条 `residual` signal | 只校验存在且恰一条；额外 author signal 记 `W-MAN-117`，不另判错 |
 

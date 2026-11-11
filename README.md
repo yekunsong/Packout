@@ -11,18 +11,24 @@ packout 扫描你本机 AI 工具留下的状态——规则、记忆、会话�
 近一年出现的 `claude-handoff` 一类工具解决的是**同一台机器上**把上下文从一次会话递给下一次。
 packout 解决的是**跨机器**：这台机器搬走、重装或卖掉之后，还剩什么。
 
-## P0 能做什么
+## 能做什么
 
 ```bash
 packout scan   --out ./out --root home=$HOME --root repo=/path/to/repo   # 只读扫描
 packout report --out ./out --in ./out # 起一个只绑 127.0.0.1 的报告页
 packout export --src ./out --out ./pack   # 打成可校验的状态包（自动读 out/roots.json）
-packout verify ./pack                 # 校验包（P0 结论是 hash-ok, unverified）
+packout export --src ./out --out ./pack --with-secrets --recipient age1…  # 凭据进 secrets.age
+packout sign   ./pack --key ~/.config/packout/minisign.key   # 签名（覆盖 SIG.json + manifest/）
+packout verify ./pack --pubkey ./me.pub   # → ok / tampered / bad-signature / unsigned
+packout restore ./pack --into ~/.claude-home   # 恢复到空目录；未签名默认拒绝
+packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计划
 ```
 
 ## 安全姿态
 
-- **只读**。P0 不删、不改、不移动任何被扫描的文件；所有写入都在 `--out` 之下。
+- **扫描只读**。`scan`/`report` 不删、不改、不移动任何被扫描的文件；扫描期唯一的写是 `--out` 与 SQLite 的 `-shm`。
+- **写只有两个入口**：`export` 只写 `--out`，`restore` 只写 `--into`（默认要求空目录，`--in-place` 才覆盖）。
+- **未签名不是 ok**。`verify` 对没有有效签名的包给 `unsigned`/`hash-ok, unverified`/`bad-signature`，退出码 2；`restore` 只放行 `ok`。
 - **每条结论都带信号**，没有信号的结论不出现；置信度低的自动落回"保留"。
 - **残留兜底**。没被任何规则命中的东西会被单列出来，而不是消失。代价是：残留项不做内容级凭据检测，报告里会写明。
 - **凭据只露前缀和指纹**，完整值不进清单；分三类——只存引用、可加密带走、只能重登。
@@ -30,15 +36,17 @@ packout verify ./pack                 # 校验包（P0 结论是 hash-ok, unveri
 
 ## P0 不做
 
-删源、restore、加密打包、MCP server、GUI、遥测。
+删源、GUI、遥测。MCP 只做只读计划面（见 `docs/design-mcp.md`），不代执行。
 
-## 已知限制（P0）
+## 已知限制
 
 - 清单在内存里收集后统一排序，10 万文件约 140 MiB 峰值、11 秒；20 万文件预计 30–50 秒。
 - sqlite 只按文件头与 `-wal` 判断，不解析库内容。
 - `--root` 指向的 keychain / Windows 凭据管理器 / 注册表条目一律标 `probe_unavailable`。
 - 硬链接、ADS、ACL/属主、Windows 保留名未做特判。
 - 报告里的凭据只到前缀与指纹，无法确认"是不是这一条"的末位。
+- `secret_ref` 只写在配置占位符里，不写进清单；因此不持密钥时无法校验引用有效性。
+- 未签名的包 `verify` 退出码是 **2**（`unsigned`）。P0 时代的 `hash-ok, unverified` 不再是终态。
 
 ## 平台
 

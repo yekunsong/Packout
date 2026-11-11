@@ -89,3 +89,21 @@ func itoa(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// Signing and trust errors.
+var (
+	// ErrNoKey means the minisign private key file is missing or not a
+	// plain regular file.
+	ErrNoKey = errors.New("pack: signing key missing")
+	// ErrKeyPermissions means the private key is readable by group or other.
+	ErrKeyPermissions = errors.New("pack: signing key permissions too wide (want 0600)")
+	// ErrInvalidKey means the private key file is malformed or encrypted.
+	ErrInvalidKey = errors.New("pack: invalid signing key")
+	// ErrKeyExists means key generation would overwrite an existing key.
+	ErrKeyExists = errors.New("pack: signing key already exists")
+	// ErrInvalidPubKey means a public key file is malformed or empty.
+	ErrInvalidPubKey = errors.New("pack: invalid public key file")
+	// ErrBadSignature means a signature is present but no trusted public key
+	// verifies it.
+	ErrBadSignature = errors.New("pack: bad signature")
+)

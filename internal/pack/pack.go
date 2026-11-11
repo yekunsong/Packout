@@ -8,10 +8,12 @@
 //	REPORT.html    optional self-contained report
 //	SIG.json       hash coverage of every other entry
 //
-// P0 has no encryption and no signatures. SIG is a SHA-256 tree digest, so a
-// verify result always reads "hash-ok, unverified" and never "ok" (D-008 §7).
-// Verify itself never writes, so a malicious package cannot land anything
-// before it has been checked end to end.
+// The package is a plain directory; credential values may additionally be
+// encrypted into secrets.age, but the tree itself is not. SIG is a SHA-256
+// tree digest. Without a signature a verify result reads "hash-ok,
+// unverified"; with a valid minisign signature (D-043) it reads "ok". Verify
+// itself never writes, so a malicious package cannot land anything before it
+// has been checked end to end.
 package pack
 
 import (
@@ -22,6 +24,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"aead.dev/minisign"
 
 	"packout/internal/fsx"
 	"packout/internal/manifest"
@@ -65,9 +69,15 @@ type Config struct {
 	Profile *profile.Profile
 	Roots   map[string]string
 
-	// IdentityPath is only used for the D-008 §6 warning when the identity
-	// file would end up inside the package tree.
+	// IdentityPath is used for the D-008 §6 warning (identity inside the
+	// package) and for the 0600 permission warning.
 	IdentityPath string
+
+	// WithSecrets exports RESTORE credential values into secrets.age, leaving
+	// secret_ref placeholders in config/. Crypt selects the encryption shape
+	// and is required when WithSecrets is set.
+	WithSecrets bool
+	Crypt       CryptOptions
 
 	// Force allows writing into a non-empty OutDir. The diff is always
 	// computed before the first write (C-09).
@@ -95,6 +105,8 @@ type Result struct {
 	Entries       int      `json:"entries"`
 	TotalBytes    int64    `json:"total_bytes"`
 	ConfigFiles   int      `json:"config_files"`
+	SecretRefs    int      `json:"secret_refs,omitempty"`
+	SecretsPath   string   `json:"secrets_path,omitempty"`
 	Warnings      []string `json:"warnings,omitempty"`
 	Diff          *Diff    `json:"diff,omitempty"`
 }
@@ -108,6 +120,11 @@ func Export(cfg Config) (res *Result, err error) {
 	cfg.Limits = cfg.Limits.withDefaults()
 	if cfg.SourceDir == "" || cfg.OutDir == "" {
 		return nil, fmt.Errorf("%w: SourceDir and OutDir are required", ErrInvalidConfig)
+	}
+	if cfg.WithSecrets {
+		if err := cfg.Crypt.validateShape(); err != nil {
+			return nil, err
+		}
 	}
 	src, err := fsx.Abs(cfg.SourceDir)
 	if err != nil {
@@ -148,6 +165,14 @@ func Export(cfg Config) (res *Result, err error) {
 	if err := manifest.Validate(manifestDir); err != nil {
 		return nil, fmt.Errorf("pack: invalid manifest: %w", err)
 	}
+	var secretSalt string
+	if cfg.WithSecrets {
+		m, merr := manifest.ReadManifest(manifestDir)
+		if merr != nil {
+			return nil, fmt.Errorf("pack: read manifest: %w", merr)
+		}
+		secretSalt = m.Header.Inputs.SecretSalt
+	}
 
 	configDir, err := optionalDir(cfg.ConfigDir, filepath.Join(src, ConfigDirName))
 	if err != nil {
@@ -181,15 +206,17 @@ func Export(cfg Config) (res *Result, err error) {
 	}()
 
 	res = &Result{OutDir: out, FormatVersion: FormatVersion, Method: MethodSHA256Tree, Signed: false}
-	if cfg.IdentityPath != "" {
-		if id, aerr := fsx.Abs(cfg.IdentityPath); aerr == nil && fsx.Within(out, id) {
-			res.Warnings = append(res.Warnings, "identity file "+id+" will live inside the package tree")
-		}
+	if cfg.WithSecrets {
+		res.Warnings = append(res.Warnings, identityWarnings(cfg.IdentityPath, out)...)
+	}
+	var secrets *secretCollector
+	if cfg.WithSecrets {
+		secrets = newSecretCollector(secretSalt)
 	}
 	if names, lerr := listNames(src); lerr == nil {
 		for _, n := range names {
 			switch n {
-			case ManifestDirName, ConfigDirName, ReinstallDirName, ReportName, SIGName:
+			case ManifestDirName, ConfigDirName, ReinstallDirName, ReportName, SIGName, SecretsName:
 			case rootsFileName:
 				// roots.json is local scan metadata (instance -> absolute source
 				// path). It is deliberately not packaged: it would leak the
@@ -207,6 +234,9 @@ func Export(cfg Config) (res *Result, err error) {
 		return res, err
 	}
 	if configDir != "" {
+		if cfg.WithSecrets {
+			res.Warnings = append(res.Warnings, "config/ 来自现成的去密目录，secrets.age 只能为空")
+		}
 		// copyTree requires an empty destination; use a temporary sibling.
 		tmpConfig := filepath.Join(stage, ".config-copy")
 		if _, err := copyTree(configDir, tmpConfig, cfg.Limits); err != nil {
@@ -219,12 +249,14 @@ func Export(cfg Config) (res *Result, err error) {
 			return res, err
 		}
 	} else if cfg.Profile != nil {
-		n, werr, xerr := extractConfig(manifestDir, cfg.Profile, cfg.Roots, filepath.Join(stage, ConfigDirName), cfg.Limits)
+		n, werr, xerr := extractConfig(manifestDir, cfg.Profile, cfg.Roots, filepath.Join(stage, ConfigDirName), cfg.Limits, secrets)
 		res.ConfigFiles = n
 		res.Warnings = append(res.Warnings, werr...)
 		if xerr != nil {
 			return res, xerr
 		}
+	} else if cfg.WithSecrets {
+		res.Warnings = append(res.Warnings, "没有 profile，config/ 未抽取；secrets.age 为空")
 	}
 	if reinstallDir != "" {
 		if _, err := copyTree(reinstallDir, filepath.Join(stage, ReinstallDirName), cfg.Limits); err != nil {
@@ -244,6 +276,22 @@ func Export(cfg Config) (res *Result, err error) {
 		if err := copyFile(reportPath, filepath.Join(stage, ReportName), ri.Mode); err != nil {
 			return res, err
 		}
+	}
+
+	if cfg.WithSecrets {
+		plain, perr := secrets.encode()
+		if perr != nil {
+			return res, perr
+		}
+		res.SecretRefs = len(secrets.byRef)
+		if res.SecretRefs == 0 {
+			plain = emptyIndex()
+			res.Warnings = append(res.Warnings, "未发现 RESTORE 凭据，secrets.age 为空索引")
+		}
+		if err := EncryptSecrets(filepath.Join(stage, SecretsName), plain, cfg.Crypt); err != nil {
+			return res, err
+		}
+		res.SecretsPath = filepath.Join(out, SecretsName)
 	}
 
 	entries, err := scanTree(stage, cfg.Limits, true)
@@ -351,6 +399,15 @@ func install(stage, out string, force bool, limits Limits, newSIG *SIG, res *Res
 	}
 	if err := copyFile(filepath.Join(stage, SIGName), sigDst, 0o644); err != nil {
 		return err
+	}
+	// A re-export rewrites SIG, so any old signature is stale. Remove it
+	// rather than leave a package that claims to be signed for old content.
+	sigFile := filepath.Join(out, MinisigName)
+	if _, err := fsx.Lstat(sigFile); err == nil {
+		if err := removeIfExists(sigFile); err != nil {
+			return err
+		}
+		res.Warnings = append(res.Warnings, "重新导出删除了旧签名 "+MinisigName+"，需要重新 sign")
 	}
 	removeManaged(out, diff.Removed)
 	return os.RemoveAll(stage)
@@ -514,7 +571,7 @@ func removeManaged(dest string, removed []string) {
 		return removed[i] > removed[j]
 	})
 	for _, rel := range removed {
-		if rel != ReportName && !hasTopPrefix(rel, tops) {
+		if rel != ReportName && rel != SecretsName && !hasTopPrefix(rel, tops) {
 			continue
 		}
 		if p, err := safeJoin(dest, rel); err == nil {
@@ -523,41 +580,70 @@ func removeManaged(dest string, removed []string) {
 	}
 }
 
-// Conclusion words. Verify never returns "ok" in P0 (D-008 §7).
+// Conclusion words (D-043). Only "ok" permits "可以恢复"; "hash-ok,
+// unverified" proves integrity but not origin.
 const (
+	ConclusionOK               = "ok"
 	ConclusionHashOKUnverified = "hash-ok, unverified"
 	ConclusionUnsigned         = "unsigned"
+	ConclusionTampered         = "tampered"
+	ConclusionBadSignature     = "bad-signature"
 	ConclusionFailed           = "failed"
 	ConclusionEmpty            = "empty"
 )
 
+// VerifyOptions configure signature verification.
+type VerifyOptions struct {
+	Limits Limits
+	// PubKeyPath is --pubkey. When set it is the only key source; otherwise
+	// ~/.config/packout/trusted_keys is used when it exists.
+	PubKeyPath string
+	// TrustedKeysPath overrides the default trusted-keys file.
+	TrustedKeysPath string
+	// OnKeySeen is called for every public key that actually verified the
+	// signature. firstSeen is true when the key came from --pubkey and was
+	// not already listed in the trusted-keys file (TOFU).
+	OnKeySeen func(fingerprint string, firstSeen bool)
+}
+
 // Verdict is a verify result. A failed verdict is returned together with an
 // error; an unsigned but structurally sound manifest is a successful verdict.
 type Verdict struct {
-	Dir           string    `json:"dir"`
-	Conclusion    string    `json:"conclusion"`
-	Signed        bool      `json:"signed"`
-	Method        string    `json:"method,omitempty"`
-	FormatVersion int       `json:"format_version,omitempty"`
-	TreeSHA256    string    `json:"tree_sha256,omitempty"`
-	Entries       int       `json:"entries"`
-	TotalBytes    int64     `json:"total_bytes"`
-	ManifestValid bool      `json:"manifest_valid"`
-	Problems      []Problem `json:"problems,omitempty"`
+	Dir              string    `json:"dir"`
+	Conclusion       string    `json:"conclusion"`
+	Signed           bool      `json:"signed"`
+	SignaturePresent bool      `json:"signature_present"`
+	KeyFingerprint   string    `json:"key_fingerprint,omitempty"`
+	Method           string    `json:"method,omitempty"`
+	FormatVersion    int       `json:"format_version,omitempty"`
+	TreeSHA256       string    `json:"tree_sha256,omitempty"`
+	Entries          int       `json:"entries"`
+	TotalBytes       int64     `json:"total_bytes"`
+	ManifestValid    bool      `json:"manifest_valid"`
+	Problems         []Problem `json:"problems,omitempty"`
 }
 
-// Verify checks a package directory. It never writes.
+// Verify checks a package directory with default options. It never writes.
 //
 // The order is deliberate (INV-C06): SIG coverage against the real tree first,
-// manifest structure second. A directory without SIG yields the explicit
-// "unsigned" conclusion; an empty or unrecognisable one is an error.
+// manifest structure second, signature last. Content changed under a present
+// signature is still "tampered": the signature only covers SIG.json and
+// manifest/, so a changed mirror must be caught by the tree hash.
+//
+// A directory without SIG yields the explicit "unsigned" conclusion; an empty
+// or unrecognisable one is an error.
 func Verify(dir string) (*Verdict, error) {
 	return VerifyWith(dir, Limits{})
 }
 
 // VerifyWith is Verify with explicit resource limits.
 func VerifyWith(dir string, limits Limits) (*Verdict, error) {
-	limits = limits.withDefaults()
+	return VerifyWithOptions(dir, VerifyOptions{Limits: limits})
+}
+
+// VerifyWithOptions is Verify with explicit signature/trust options.
+func VerifyWithOptions(dir string, opt VerifyOptions) (*Verdict, error) {
+	limits := opt.Limits.withDefaults()
 	if dir == "" {
 		return nil, fmt.Errorf("%w: empty directory", ErrEmptyPackage)
 	}
@@ -582,15 +668,19 @@ func VerifyWith(dir string, limits Limits) (*Verdict, error) {
 	if err != nil {
 		return nil, err
 	}
-	var haveSIG, haveManifest bool
+	var haveSIG, haveManifest, haveMinisig bool
 	for _, n := range names {
 		switch n {
 		case SIGName:
 			haveSIG = true
 		case ManifestDirName:
 			haveManifest = true
+		case MinisigName:
+			haveMinisig = true
 		}
 	}
+	v.SignaturePresent = haveMinisig
+	v.Signed = haveMinisig
 	if !haveSIG && !haveManifest {
 		v.Conclusion = ConclusionEmpty
 		return v, fmt.Errorf("%w: %s", ErrEmptyPackage, abs)
@@ -624,7 +714,7 @@ func VerifyWith(dir string, limits Limits) (*Verdict, error) {
 		v.Problems = append(v.Problems, Problem{Code: "sig-invalid", Path: SIGName, Detail: err.Error()})
 		return v, err
 	}
-	v.Signed = sig.Signed
+	v.Signed = haveMinisig
 	v.Method = sig.Method
 	v.FormatVersion = sig.FormatVersion
 
@@ -643,25 +733,126 @@ func VerifyWith(dir string, limits Limits) (*Verdict, error) {
 	v.Entries = got.EntryCount
 	v.TotalBytes = got.TotalBytes
 	if problems := CompareSIG(sig, got); len(problems) > 0 {
-		v.Conclusion = ConclusionFailed
+		v.Conclusion = ConclusionTampered
 		v.Problems = append(v.Problems, problems...)
 		return v, &ProblemsError{Sentinel: ErrTampered, Problems: problems}
 	}
 	if sig.TreeSHA256 != got.TreeSHA256 {
-		v.Conclusion = ConclusionFailed
+		v.Conclusion = ConclusionTampered
 		p := Problem{Code: "sig-tree-hash-mismatch", Detail: "canonical tree hash differs from SIG"}
 		v.Problems = append(v.Problems, p)
 		return v, &ProblemsError{Sentinel: ErrTampered, Problems: []Problem{p}}
 	}
 
+	v.TreeSHA256 = got.TreeSHA256
 	v.ManifestValid = checkManifest(abs, v)
 	if !v.ManifestValid {
 		v.Conclusion = ConclusionFailed
 		return v, &ProblemsError{Sentinel: ErrManifestInvalid, Problems: v.Problems}
 	}
-	v.TreeSHA256 = got.TreeSHA256
-	v.Conclusion = ConclusionHashOKUnverified
-	return v, nil
+	if !haveMinisig {
+		v.Conclusion = ConclusionUnsigned
+		return v, nil
+	}
+	return verifySignature(abs, v, opt)
+}
+
+// verifySignature checks SIG.json.minisig against the coverage hash. The tree
+// and manifest were already checked, so a failure here is attribution, not
+// content.
+func verifySignature(abs string, v *Verdict, opt VerifyOptions) (*Verdict, error) {
+	keys, err := publicKeys(opt)
+	if err != nil {
+		v.Conclusion = ConclusionFailed
+		v.Problems = append(v.Problems, Problem{Code: "pubkey-invalid", Detail: err.Error()})
+		return v, err
+	}
+	if len(keys) == 0 {
+		v.Conclusion = ConclusionHashOKUnverified
+		v.Problems = append(v.Problems, Problem{
+			Code:   "no-pubkey",
+			Detail: "签名存在但无公钥；用 --pubkey FILE，或把公钥写入 " + DefaultTrustedKeysPath(),
+		})
+		return v, nil
+	}
+	sig, err := readMinisig(abs)
+	if err != nil {
+		v.Conclusion = ConclusionBadSignature
+		v.Problems = append(v.Problems, Problem{Code: "bad-signature", Path: MinisigName, Detail: err.Error()})
+		return v, fmt.Errorf("%w: %v", ErrBadSignature, err)
+	}
+	coverage, err := CoverageSHA256(abs, opt.Limits)
+	if err != nil {
+		v.Conclusion = ConclusionFailed
+		v.Problems = append(v.Problems, Problem{Code: "coverage-invalid", Detail: err.Error()})
+		return v, err
+	}
+	msg := []byte(signatureDomain + coverage)
+
+	var trusted []minisign.PublicKey
+	trustedPath := opt.TrustedKeysPath
+	if trustedPath == "" {
+		trustedPath = DefaultTrustedKeysPath()
+	}
+	if trustedPath != "" {
+		if trusted, err = LoadPublicKeys(trustedPath); err != nil {
+			if !errors.Is(err, fs.ErrNotExist) {
+				v.Conclusion = ConclusionFailed
+				v.Problems = append(v.Problems, Problem{Code: "pubkey-invalid", Detail: err.Error()})
+				return v, err
+			}
+		}
+	}
+	for i := range keys {
+		if !minisign.Verify(keys[i], msg, sig) {
+			continue
+		}
+		fpr := KeyFingerprint(&keys[i])
+		v.Conclusion = ConclusionOK
+		v.KeyFingerprint = fpr
+		firstSeen := opt.PubKeyPath != "" && !containsKey(trusted, &keys[i])
+		if opt.OnKeySeen != nil {
+			opt.OnKeySeen(fpr, firstSeen)
+		}
+		return v, nil
+	}
+	p := Problem{Code: "bad-signature", Path: MinisigName,
+		Detail: "签名存在，但没有任何已知公钥能验证它"}
+	v.Conclusion = ConclusionBadSignature
+	v.Problems = append(v.Problems, p)
+	return v, &ProblemsError{Sentinel: ErrBadSignature, Problems: []Problem{p}}
+}
+
+func containsKey(keys []minisign.PublicKey, want *minisign.PublicKey) bool {
+	for i := range keys {
+		if keys[i].Equal(*want) {
+			return true
+		}
+	}
+	return false
+}
+
+// publicKeys resolves the key source. --pubkey wins; otherwise the trusted
+// keys file is used when present. A missing trusted-keys file is not an error.
+func publicKeys(opt VerifyOptions) ([]minisign.PublicKey, error) {
+	if opt.PubKeyPath != "" {
+		return LoadPublicKeys(opt.PubKeyPath)
+	}
+	path := opt.TrustedKeysPath
+	if path == "" {
+		path = DefaultTrustedKeysPath()
+	}
+	if path == "" {
+		return nil, nil
+	}
+	keys, err := LoadPublicKeys(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return keys, nil
 }
 
 // checkManifest validates manifest/ and records failures on v. It returns

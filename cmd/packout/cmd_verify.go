@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -9,9 +10,10 @@ import (
 )
 
 type verifyConfig struct {
-	dir   string
-	json  bool
-	quiet bool
+	dir    string
+	pubkey string
+	json   bool
+	quiet  bool
 }
 
 // runVerify checks one package. The conclusion word is printed verbatim
@@ -25,7 +27,13 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 	if ctx.Err() != nil {
 		return exitFromCtx(r, ctx)
 	}
-	v, err := pack.Verify(cfg.dir)
+	opt := pack.VerifyOptions{PubKeyPath: cfg.pubkey}
+	opt.OnKeySeen = func(fingerprint string, firstSeen bool) {
+		if firstSeen {
+			r.warn("packout: 首次见到公钥 SHA256:%s；已按 TOFU 信任本次，请通过另一渠道核对指纹", fingerprint)
+		}
+	}
+	v, err := pack.VerifyWithOptions(cfg.dir, opt)
 	if ctx.Err() != nil {
 		return exitFromCtx(r, ctx)
 	}
@@ -44,10 +52,9 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 	if err != nil {
 		r.warn("packout: %v", err)
 	}
+	// Problems are printed even without an error: "hash-ok, unverified" needs
+	// its --pubkey hint, and TOFU warnings must survive --quiet.
 	for _, p := range v.Problems {
-		if err == nil {
-			break
-		}
 		if p.Detail != "" {
 			r.warn("packout:   %s %s: %s", p.Code, p.Path, p.Detail)
 		} else {
@@ -55,9 +62,12 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 		}
 	}
 	switch v.Conclusion {
-	case pack.ConclusionHashOKUnverified, pack.ConclusionUnsigned:
+	case pack.ConclusionOK, pack.ConclusionHashOKUnverified:
 		return exitOK
 	default:
+		if errors.Is(err, pack.ErrInvalidPubKey) {
+			return exitUsage
+		}
 		return exitPartial
 	}
 }

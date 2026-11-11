@@ -166,11 +166,11 @@ func TestFullFlow(t *testing.T) {
 	}
 
 	code, stdout, stderr = run(t, "verify", pkg)
-	if code != exitOK {
+	if code != exitPartial {
 		t.Fatalf("verify: code=%d stdout=%q stderr=%q", code, stdout, stderr)
 	}
-	if strings.TrimSpace(stdout) != pack.ConclusionHashOKUnverified {
-		t.Fatalf("verify conclusion = %q, want %q", strings.TrimSpace(stdout), pack.ConclusionHashOKUnverified)
+	if strings.TrimSpace(stdout) != pack.ConclusionUnsigned {
+		t.Fatalf("verify conclusion = %q, want %q", strings.TrimSpace(stdout), pack.ConclusionUnsigned)
 	}
 
 	// The same target again is exit 4; --force merges package-owned subtrees.
@@ -215,7 +215,7 @@ func TestJSONEveryCommand(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &v); err != nil {
 		t.Fatalf("verify JSON: %v", err)
 	}
-	if v.Conclusion != pack.ConclusionHashOKUnverified {
+	if v.Conclusion != pack.ConclusionUnsigned {
 		t.Fatalf("verify JSON conclusion = %q", v.Conclusion)
 	}
 
@@ -314,5 +314,67 @@ func TestVerifyFailedConclusion(t *testing.T) {
 	}
 	if strings.TrimSpace(stdout) != pack.ConclusionEmpty {
 		t.Fatalf("conclusion = %q, want %q", strings.TrimSpace(stdout), pack.ConclusionEmpty)
+	}
+}
+
+func TestExportWithSecretsNeedsCredentialShape(t *testing.T) {
+	inst := fixtureTree(t)
+	work := t.TempDir()
+	scanOut := filepath.Join(work, "scan")
+	if code, _, stderr := run(t, append([]string{"scan", "--out", scanOut, "--quiet"}, rootArgs(inst)...)...); code != exitOK {
+		t.Fatalf("scan: code=%d stderr=%q", code, stderr)
+	}
+	code, _, stderr := run(t, "export", "--src", scanOut, "--out", filepath.Join(work, "pkg"), "--with-secrets")
+	if code != exitUsage {
+		t.Fatalf("code=%d, want %d (stderr %q)", code, exitUsage, stderr)
+	}
+	if !strings.Contains(stderr, "--recipient") || !strings.Contains(stderr, "--passphrase") {
+		t.Fatalf("stderr does not name both shapes: %q", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(work, "pkg")); !os.IsNotExist(err) {
+		t.Fatal("usage failure left a package directory")
+	}
+}
+
+func TestExportWithSecretsPassphraseFromStdin(t *testing.T) {
+	inst := fixtureTree(t)
+	work := t.TempDir()
+	scanOut := filepath.Join(work, "scan")
+	if code, _, stderr := run(t, append([]string{"scan", "--out", scanOut, "--quiet"}, rootArgs(inst)...)...); code != exitOK {
+		t.Fatalf("scan: code=%d stderr=%q", code, stderr)
+	}
+	old := passphraseStdin
+	passphraseStdin = strings.NewReader("cli-passphrase\n")
+	t.Cleanup(func() { passphraseStdin = old })
+
+	pkg := filepath.Join(work, "pkg")
+	code, _, stderr := run(t, append([]string{"export", "--src", scanOut, "--out", pkg, "--with-secrets", "--passphrase", "--quiet"}, rootArgs(inst)...)...)
+	if code != exitOK {
+		t.Fatalf("export: code=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(pkg, pack.SecretsName)); err != nil {
+		t.Fatalf("secrets.age missing: %v", err)
+	}
+	if _, err := pack.DecryptSecrets(pkg, pack.CryptOptions{Passphrase: []byte("cli-passphrase")}); err != nil {
+		t.Fatalf("decrypt: %v", err)
+	}
+}
+
+func TestExportWithSecretsIdentityInsideOutWarns(t *testing.T) {
+	inst := fixtureTree(t)
+	work := t.TempDir()
+	scanOut := filepath.Join(work, "scan")
+	if code, _, stderr := run(t, append([]string{"scan", "--out", scanOut, "--quiet"}, rootArgs(inst)...)...); code != exitOK {
+		t.Fatalf("scan: code=%d stderr=%q", code, stderr)
+	}
+	pkg := filepath.Join(work, "pkg")
+	identity := filepath.Join(pkg, "identity.age")
+	recipient := "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
+	code, _, stderr := run(t, append([]string{"export", "--src", scanOut, "--out", pkg, "--with-secrets", "--recipient", recipient, "--identity", identity, "--quiet"}, rootArgs(inst)...)...)
+	if code != exitOK {
+		t.Fatalf("export: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stderr, "inside the package tree") {
+		t.Fatalf("no identity warning: %q", stderr)
 	}
 }

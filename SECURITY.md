@@ -10,9 +10,15 @@
 
 只绑 `127.0.0.1`，端口由系统分配，token 128 bit 且 15 分钟过期，校验 `Host` 头，`Referrer-Policy: no-referrer`。`--lan` 会绑 `0.0.0.0` 并在页面上警示。
 
-## 3. 包还没有签名
+## 3. 签名与恢复
 
-P0 的 `verify` 只能证明"内容没被改过"（哈希树覆盖全包），**不能证明是谁打的包**。所以结论词是 `hash-ok, unverified`，永远不是 `ok`。非对称签名在 P1。
+包可以签名（minisign）。`verify` 的结论分五档：`ok` / `hash-ok, unverified` / `bad-signature` / `tampered` / `unsigned`。只有 `ok` 允许 restore；`--allow-unverified` 是显式的自担风险开关。
+
+首次见到的公钥会打印指纹并提示 TOFU，没有 PKI。
+
+## 4. restore 的写姿态
+
+默认只写空目录；`--in-place` 必须先 diff、再看 `--force`。每个文件写完立刻回读哈希。失败不回滚，已写条目列进报告。
 
 ## 报告漏洞
 

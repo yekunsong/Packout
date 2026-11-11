@@ -27,7 +27,7 @@ const maxExtractFile = 8 << 20
 // keys-only keeps structure without values. digest and none produce no file.
 // Destinations are always relative: config/<root>/<path-within-root>, so no
 // user name or home prefix is baked into the package.
-func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]string, dest string, limits Limits) (int, []string, error) {
+func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]string, dest string, limits Limits, secrets *secretCollector) (int, []string, error) {
 	m, err := manifest.ReadManifest(manifestDir)
 	if err != nil {
 		return 0, nil, fmt.Errorf("pack: extract config: %w", err)
@@ -107,21 +107,6 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 			warnings = append(warnings, fmt.Sprintf("config: unit %s: %v", u.ID, err))
 			continue
 		}
-		var out []byte
-		switch extractor {
-		case profile.ExtractorRawRef:
-			out = data
-		case profile.ExtractorTemplate:
-			out = renderTemplate(data, redact)
-		case profile.ExtractorKeysOnly:
-			out, err = renderKeysOnly(data)
-			if err != nil {
-				warnings = append(warnings, fmt.Sprintf("config: unit %s: not JSON: %v", u.ID, err))
-				continue
-			}
-		default:
-			continue
-		}
 		outRel := rootName + "/" + rel
 		if err := ValidateRelPath(outRel); err != nil {
 			warnings = append(warnings, fmt.Sprintf("config: unit %s: %v", u.ID, err))
@@ -129,6 +114,28 @@ func extractConfig(manifestDir string, prof *profile.Profile, roots map[string]s
 		}
 		if written[outRel] {
 			warnings = append(warnings, fmt.Sprintf("config: duplicate destination %q (unit %s skipped)", outRel, u.ID))
+			continue
+		}
+		var out []byte
+		switch extractor {
+		case profile.ExtractorRawRef:
+			out = data
+			if secrets != nil {
+				out = renderWithSecrets(data, u, entry, u.PartID, secrets, outRel, prof)
+			}
+		case profile.ExtractorTemplate:
+			if secrets != nil {
+				out = renderWithSecrets(data, u, entry, u.PartID, secrets, outRel, prof)
+			} else {
+				out = renderTemplate(data, redact)
+			}
+		case profile.ExtractorKeysOnly:
+			out, err = renderKeysOnly(data)
+			if err != nil {
+				warnings = append(warnings, fmt.Sprintf("config: unit %s: not JSON: %v", u.ID, err))
+				continue
+			}
+		default:
 			continue
 		}
 		target, err := safeJoin(dest, outRel)
@@ -224,9 +231,10 @@ func redactJSON(data []byte, r *profile.Redact, repl string) ([]byte, bool) {
 	if err := json.Unmarshal(data, &v); err != nil {
 		return nil, false
 	}
+	keep := keepPlaceholder(repl)
 	for _, ptr := range r.JSONPointer {
 		segs := strings.Split(strings.TrimPrefix(ptr, "/"), "/")
-		applyPointer(v, segs, repl)
+		applyPointer(v, segs, keep)
 	}
 	patterns := make([]*regexp.Regexp, 0, len(r.KeyPattern))
 	for _, p := range r.KeyPattern {
@@ -235,7 +243,7 @@ func redactJSON(data []byte, r *profile.Redact, repl string) ([]byte, bool) {
 		}
 	}
 	if len(patterns) > 0 {
-		v = applyKeyPatterns(v, patterns, repl)
+		v = applyKeyPatterns(v, patterns, keep)
 	}
 	out, err := json.Marshal(v)
 	if err != nil {
@@ -244,7 +252,18 @@ func redactJSON(data []byte, r *profile.Redact, repl string) ([]byte, bool) {
 	return out, true
 }
 
-func applyPointer(v any, segs []string, repl string) {
+// keepPlaceholder returns a replacement function that preserves an already
+// inserted secret_ref placeholder instead of redacting it a second time.
+func keepPlaceholder(repl string) func(any) any {
+	return func(v any) any {
+		if s, ok := v.(string); ok && strings.HasPrefix(s, secretPlaceholderPrefix) {
+			return s
+		}
+		return repl
+	}
+}
+
+func applyPointer(v any, segs []string, repl func(any) any) {
 	if len(segs) == 0 {
 		return
 	}
@@ -254,7 +273,7 @@ func applyPointer(v any, segs []string, repl string) {
 		if seg == "*" {
 			for k, child := range node {
 				if len(segs) == 1 {
-					node[k] = repl
+					node[k] = repl(child)
 				} else {
 					applyPointer(child, segs[1:], repl)
 				}
@@ -266,20 +285,20 @@ func applyPointer(v any, segs []string, repl string) {
 			return
 		}
 		if len(segs) == 1 {
-			node[seg] = repl
+			node[seg] = repl(child)
 			return
 		}
 		applyPointer(child, segs[1:], repl)
 	case []any:
 		if len(segs) == 1 && segs[0] == "*" {
 			for i := range node {
-				node[i] = repl
+				node[i] = repl(node[i])
 			}
 		}
 	}
 }
 
-func applyKeyPatterns(v any, patterns []*regexp.Regexp, repl string) any {
+func applyKeyPatterns(v any, patterns []*regexp.Regexp, repl func(any) any) any {
 	switch node := v.(type) {
 	case map[string]any:
 		for k, child := range node {
@@ -291,7 +310,7 @@ func applyKeyPatterns(v any, patterns []*regexp.Regexp, repl string) any {
 				}
 			}
 			if matched {
-				node[k] = repl
+				node[k] = repl(child)
 				continue
 			}
 			node[k] = applyKeyPatterns(child, patterns, repl)

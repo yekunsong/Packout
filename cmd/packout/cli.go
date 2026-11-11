@@ -126,6 +126,19 @@ func (r *rootList) Set(v string) error {
 	return nil
 }
 
+// stringList collects repeated plain string flags (e.g. --recipient).
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, ",") }
+
+func (s *stringList) Set(v string) error {
+	if v == "" {
+		return fmt.Errorf("空值")
+	}
+	*s = append(*s, v)
+	return nil
+}
+
 // bindings converts the raw list, checking every role against the profile.
 func (r rootList) bindings(p *profile.Profile) ([]scanRootBinding, error) {
 	out := make([]scanRootBinding, 0, len(r))

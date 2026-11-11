@@ -111,8 +111,8 @@ func (st *walkState) walk(dir, relDir string) error {
 		if err := ValidateRelPath(rel); err != nil {
 			return err
 		}
-		if st.excludeSIG && rel == SIGName {
-			continue // never covered by itself
+		if st.excludeSIG && (rel == SIGName || rel == MinisigName) {
+			continue // neither is covered by the tree (no self-reference)
 		}
 		st.entries = append(st.entries, SIGEntry{}) // reserve one slot per entry
 		if len(st.entries) > st.limits.MaxEntries {
@@ -303,6 +303,9 @@ func copyFile(src, dst string, mode fs.FileMode) error {
 	}
 	return out.Close()
 }
+
+// ParseMode parses a SIG mode string ("0644"). Invalid input yields 0644.
+func ParseMode(s string) fs.FileMode { return fs.FileMode(parseMode(s)) }
 
 func parseMode(s string) uint32 {
 	var v uint32

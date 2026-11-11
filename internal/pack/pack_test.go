@@ -29,11 +29,11 @@ func TestExportVerifyRoundTrip(t *testing.T) {
 	}
 
 	v := mustVerify(t, out)
-	if v.Conclusion != ConclusionHashOKUnverified {
-		t.Fatalf("conclusion = %q, want %q", v.Conclusion, ConclusionHashOKUnverified)
+	if v.Conclusion != ConclusionUnsigned {
+		t.Fatalf("conclusion = %q, want %q", v.Conclusion, ConclusionUnsigned)
 	}
 	if v.Conclusion == "ok" {
-		t.Fatal("P0 must not conclude plain ok")
+		t.Fatal("unsigned package must not conclude plain ok")
 	}
 	if !v.ManifestValid || v.Signed || v.TreeSHA256 != res.TreeSHA256 {
 		t.Fatalf("unexpected verdict: %+v", v)
@@ -79,7 +79,7 @@ func TestTamperedContentFailsAndNamesEntry(t *testing.T) {
 	if !errors.Is(err, ErrTampered) {
 		t.Fatalf("want ErrTampered, got %v", err)
 	}
-	if v.Conclusion != ConclusionFailed {
+	if v.Conclusion != ConclusionTampered {
 		t.Fatalf("conclusion = %q", v.Conclusion)
 	}
 	found := false
@@ -226,7 +226,7 @@ func TestDestNotEmptyNeedsForceAndDiffsFirst(t *testing.T) {
 	if _, err := Export(Config{SourceDir: src, OutDir: out, Force: true}); err != nil {
 		t.Fatalf("force: %v", err)
 	}
-	if v := mustVerify(t, out); v.Conclusion != ConclusionHashOKUnverified {
+	if v := mustVerify(t, out); v.Conclusion != ConclusionUnsigned {
 		t.Fatalf("forced package does not verify: %+v", v)
 	}
 	if _, err := os.Lstat(filepath.Join(out, ManifestDirName, "stale.jsonl")); !os.IsNotExist(err) {

@@ -10,6 +10,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"golang.org/x/term"
 
 	"packout/internal/manifest"
 	"packout/internal/profile"
@@ -18,15 +21,18 @@ import (
 )
 
 type exportConfig struct {
-	src      string
-	out      string
-	force    bool
-	report   string
-	identity string
-	profile  string
-	roots    rootList
-	json     bool
-	quiet    bool
+	src         string
+	out         string
+	force       bool
+	report      string
+	identity    string
+	withSecrets bool
+	recipients  stringList
+	passphrase  bool
+	profile     string
+	roots       rootList
+	json        bool
+	quiet       bool
 }
 
 type exportSummary struct {
@@ -34,6 +40,7 @@ type exportSummary struct {
 	Entries     int      `json:"entries"`
 	TotalBytes  int64    `json:"total_bytes"`
 	ConfigFiles int      `json:"config_files"`
+	SecretRefs  int      `json:"secret_refs,omitempty"`
 	SIG         string   `json:"sig_path"`
 	Method      string   `json:"method"`
 	Signed      bool     `json:"signed"`
@@ -73,6 +80,29 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 		return r.usage("export: %v", err)
 	}
 
+	crypt := pack.CryptOptions{IdentityPath: identity}
+	if cfg.withSecrets {
+		switch {
+		case len(cfg.recipients) == 0 && !cfg.passphrase:
+			return r.usage("export --with-secrets 需要 --recipient 或 --passphrase")
+		case len(cfg.recipients) > 0 && cfg.passphrase:
+			return r.usage("--recipient 与 --passphrase 只能二选一")
+		}
+		crypt.Recipients = cfg.recipients
+		if cfg.passphrase {
+			pw, perr := readPassphrase(passphraseStdin, stderr)
+			if perr != nil {
+				return r.usage("读取口令失败：%v", perr)
+			}
+			if len(pw) == 0 {
+				return r.usage("口令为空")
+			}
+			crypt.Passphrase = pw
+		}
+	} else if len(cfg.recipients) > 0 || cfg.passphrase {
+		return r.usage("--recipient/--passphrase 需要配合 --with-secrets")
+	}
+
 	res, err := pack.Export(pack.Config{
 		Profile:      prof,
 		Roots:        roots,
@@ -80,6 +110,8 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 		OutDir:       cfg.out,
 		ReportPath:   cfg.report,
 		IdentityPath: identity,
+		WithSecrets:  cfg.withSecrets,
+		Crypt:        crypt,
 		Force:        cfg.force,
 	})
 	if err != nil {
@@ -105,6 +137,7 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 		Entries:     res.Entries,
 		TotalBytes:  res.TotalBytes,
 		ConfigFiles: res.ConfigFiles,
+		SecretRefs:  res.SecretRefs,
 		SIG:         res.SIGPath,
 		Method:      res.Method,
 		Signed:      res.Signed,
@@ -119,6 +152,30 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 		r.warn("packout: 警告：%s", w)
 	}
 	return exitOK
+}
+
+// passphraseStdin is the terminal source for --passphrase; tests replace it.
+var passphraseStdin io.Reader = os.Stdin
+
+// readPassphrase reads one line without echo when stdin is a real terminal.
+// When it is not (a pipe), it says so: the echo state is then out of our
+// hands.
+func readPassphrase(r io.Reader, stderr io.Writer) ([]byte, error) {
+	if f, ok := r.(*os.File); ok {
+		if st, err := f.Stat(); err == nil && st.Mode()&os.ModeCharDevice != 0 {
+			fmt.Fprint(stderr, "口令：")
+			b, err := term.ReadPassword(int(f.Fd()))
+			fmt.Fprintln(stderr)
+			return b, err
+		}
+	}
+	fmt.Fprint(stderr, "packout: stdin 不是 TTY，口令会回显\n口令：")
+	line, err := bufio.NewReader(r).ReadString('\n')
+	fmt.Fprintln(stderr)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	return []byte(strings.TrimRight(line, "\r\n")), nil
 }
 
 // loadExportRoots resolves what each profile root maps to on this machine.

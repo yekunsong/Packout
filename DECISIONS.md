@@ -339,3 +339,76 @@ Windows `chmod` 只映射只读位，`0755`/`0644` 这类 POSIX 权限不成立�
 `120.77.59.18:22` 能完成 TCP 握手但 30–45 s 内不返回 SSH banner（sshd 无法 fork，疑似内存/进程耗尽）。多次重试、换认证方式（密钥/口令）、加长 banner 超时均无效。
 因此**最终验证在本机两个环境完成**：Windows（便携 Go 1.27.3）+ WSL Ubuntu（Go 1.27.3），并额外在**全新克隆**上各跑一遍全量。
 待远端恢复后应补跑 `scripts/rtest.sh`；在此之前，任何"远程已验证"的说法都不成立。
+
+## D-040 P1 范围与顺序
+状态：已定（2026-11-11）。
+P1 = 加密打包 + restore + 签名 + MCP（只读面）。
+顺序有依赖：`restore` 要先有解密接口才能写；签名与加密独立可并行；MCP 最后，因为它只是把已有能力暴露出去。
+P1 的安全门槛比 P0 高一个量级：P0 只读，P1 开始往磁盘写字，且第一次让"密钥"进入流程。
+
+## D-041 加密：age，收件人优先，口令兜底
+- 用 `filippo.io/age`（v1），不自造格式。
+- 默认**收件人模式**（`--recipient`，可多个，支持 age1… 与 ssh-ed25519/rsa 公钥）。口令模式 `--passphrase` 需要显式给，不作为默认——口令人弱，且容易与包一起存放。
+- identity 默认 `~/.config/packout/identity.age`，文件权限 0600；落在 `--out` 内要警告（D-008 #6）。
+- 加密只作用于 `secrets.age` 与 `manifest` 中的指纹字段；明文配置仍留 `config/`（去密后）。
+- **加密后包的 SIG 覆盖密文**，不覆盖明文。
+
+## D-042 restore：只往新地方写，绝不删源
+- 默认目标必须是**空目录或不存在**；`--in-place` 才允许覆盖，且先 diff 再写（INV-C07）。
+- 顺序：验 SIG → 验完整性 → 解密到临时文件 → 逐条目写 → 写后逐条复验哈希 → 输出"已恢复 / 需重装 / 需人工重登"三段报告。
+- 失败即停，已写条目保留并列入报告；**不回滚已写文件**（回滚比留下半成品更难判对错）。
+- 解包路径校验全部复用 `pack` 的既有实现，不新写一套。
+- 写完对每个恢复文件复核 `file_id` 与哈希；不一致即 `restore_corrupt`。
+
+## D-043 签名：minisign，未签名永远是 unverified
+- 签名覆盖 `SIG.json` 与 `manifest/`（不只是包内容哈希）。
+- `verify` 结论扩展为：`ok`（签名有效且内容匹配）/ `hash-ok, unverified` / `tampered` / `unsigned`。
+- 只有 `ok` 允许说"可以恢复"。
+- 公钥分发靠 TOFU + 指纹朗读，不建 PKI。
+
+## D-044 签名验收与 9 项裁决
+通过（11 个 pack 测试 + 8 个 CLI 测试，两侧全绿；状态转移表实测）。
+1. **第五个结论词 `bad-signature`** 采纳，补进 D-043。
+2. 0600 检查在 Windows 不生效（`Perm()` 只映射只读位），只在 Unix 检查——写进帮助与 README，不假装跨平台。
+3. `--generate` 拒绝覆盖已有密钥。正确。
+4. **`--pubkey` 与 trusted_keys 不取并集**：`--pubkey` 是唯一验签来源，trusted_keys 只用于 first-seen 判定。接受，避免"多来源合并"带来的信任扩张。
+5. 公钥文件接受完整 `.pub`（跳过注释行）或裸 base64。接受。
+6. **重导出必删旧 `.minisig` 并告警**：否则旧签名会对新内容"看起来有效"。这条很关键，保留。
+7. 内容不符先判 `tampered`，不再走 manifest 校验。接受（结论顺序即严重度顺序）。
+8. 签名前用派生公钥自验一遍，失败不落盘。接受。
+9. `.minisig` ≤64 KiB 且必须是普通文件。接受。
+
+**行为变更需写进 README**：未签名且内容匹配由原来的 `hash-ok, unverified` 改为 `unsigned`，退出码 **2**。也就是说 P0 时代的包现在会被判为"非零"。这是有意的：P1 起"没签名"就是一等待办，不再给中性结论。
+
+## D-045 加密验收与 6 项裁决
+通过（两侧全绿；含"密文改一字节解密失败""加密失败不留半包"）。
+1. **manifest 未写 `secret_ref`**，只在 config 里留占位符 `«secret:secrets.age#h_…»`。接受为 P1 现状：restore 解析占位符即可还原；但 verify 无法在无密钥时校验引用有效性，**写进已知限制**。
+2. index 格式采用实现（`packout-secrets` v1，entries 排序保证确定性），补进 spec-manifest。
+3. 口令只从 TTY 读、`--passphrase` 是布尔；非 TTY 时明确提示会回显。接受。
+4. 无 profile 时产出**加密的空 index** 并告警，而不是省略 `secrets.age`。接受：包结构恒定，restore 少一个分支。
+5. 0600 检查只在 Unix。与 D-044 #2 一致。
+6. 收件人必须显式给，无隐式默认。接受。
+附带：`secrets.age` 权限 0600、SIG 覆盖密文、明文配置里只剩占位符，均已实测。
+
+## D-046 restore 验收与 7 项裁决
+通过。`internal/restore`（760 行）+ `cmd/packout/cmd_restore.go`；单测 10 个（round-trip、unsigned 门、tampered 始终拒、非空目标与 --force、dry-run 零写入、SIG 路径穿越、写后哈希被篡改、磁盘预算、符号链接降级、取消）；CLI 测试 6 个。
+两侧全绿：WSL Ubuntu（Go 1.27.3）与 Windows（便携 Go）各跑 `go vet ./... && go test ./...`。
+**独立走查**（`D:\Study\worker-ops\2026-11-11-packout-p1\evidence\walkthrough-v3.sh`，用真实 CLI，WSL）：G1–G12 共 15 项断言全部通过——ok 才放行、dry-run 零写入、占位符还原、包内无明文、tampered/unsigned 拒、`--allow-unverified` 放行、非空目标 4、in-place diff 无 `--force` 4。
+
+1. **写后复验比对"替换后字节"的哈希**，不是 SIG 里的包内哈希。config/ 的落地字节与包内字节本来就不同（占位符→明文），拿 SIG 哈希直接比对会把每次带密钥的恢复都误判成损坏。实现：`buildPlan` 先替换再取 sha256，`verifyReadBack` 回读比它。
+2. **config/ 条目不与 SIG 文件哈希二次比对**，非 config/ 条目比对。合理性来自步骤 1：包的 SIG 树哈希已覆盖 config/ 原始字节。
+3. **删除再写，不原子替换（--in-place）**：先 remove 旧文件再 rename 临时文件。窗口期崩溃会丢掉旧文件，但不会留下"半新半旧"的内容；与"不回滚"一条一致。
+4. **符号链接写失败一律降级为普通文件**并记 `symlink_flattened`，不只对 Windows。判据是 `os.Symlink` 的实际错误，不做平台猜测。
+5. **L5 用层号而非 action 判定**：`needs_relogin` 取 `layer == L5`，`needs_reinstall` 取 `proposed_action == reinstall`。两者可能重叠，报告不去重——宁可让用户多看一条。
+6. **hardlink 条目按普通文件恢复**。P1 不重建硬链接关系；包侧类型仍保留以便报告区分。
+7. **`--passphrase` 在包没有 `secrets.age` 时也会提示**。接受：解密前不知道包内容是否加密，先问比恢复中途再问更少出现"跑了一半才要口令"。
+
+行为变更：`restore` 是第一个在 `--out` 之外写盘的命令；默认目标必须不存在或为空，退出码 4。
+
+**与 D-042 的偏差（worker 回报 + 主会话复核，均接受）**：
+- 写后只复核哈希，不再复核 `file_id`：`file_id` 是源机卷/索引的标识，恢复产物没有可比的源值，包也不为落地文件保存它。D-042 里"复核 file_id"一句作废。
+- 落地映射：`config/<root>/…` → `<into>/<root>/…`；`reinstall/…` → `<into>/reinstall/…`；`manifest/`、`REPORT.html`、`secrets.age`、`SIG*` 不进目标。目标是状态目录，不是包副本。
+- `--allow-unverified` 只覆盖 `hash-ok, unverified` / `unsigned` / `bad-signature`；`tampered` / `failed` / `empty` 即使给 flag 也拒绝。
+- `--force` 不隐含 `--in-place`。
+- `restored` 段只列文件；计划段列目录与文件。
+- Windows 上符号链接降级测试靠注入 `Symlink` 错误覆盖（无权限建链接），不是真实文件系统行为；Linux 用真实包验证。

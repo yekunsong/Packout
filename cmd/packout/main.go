@@ -44,6 +44,10 @@ func mainWithArgs(args []string, stdout, stderr io.Writer) int {
 		return parseExport(ctx, rest, stdout, stderr)
 	case "verify":
 		return parseVerify(ctx, rest, stdout, stderr)
+	case "sign":
+		return parseSign(ctx, rest, stdout, stderr)
+	case "restore":
+		return parseRestore(ctx, rest, stdout, stderr)
 	case "profile":
 		return parseProfile(ctx, rest, stdout, stderr)
 	case "version":
@@ -147,7 +151,10 @@ func parseExport(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	fs.StringVar(&cfg.out, "out", "", "生成的包目录（必填）")
 	fs.BoolVar(&cfg.force, "force", false, "并入已存在且非空的 --out（只碰包属子树）")
 	fs.StringVar(&cfg.report, "report", "", "REPORT.html 路径（默认取 --src/REPORT.html）")
-	fs.StringVar(&cfg.identity, "identity", "", "identity 路径，仅用于包内警告")
+	fs.StringVar(&cfg.identity, "identity", "", "identity 路径，仅用于包内/权限警告")
+	fs.BoolVar(&cfg.withSecrets, "with-secrets", false, "把 RESTORE 凭据加密写入 secrets.age，config/ 中留下 secret_ref")
+	fs.Var(&cfg.recipients, "recipient", "age1… 或 ssh-ed25519/ssh-rsa 公钥，可重复")
+	fs.BoolVar(&cfg.passphrase, "passphrase", false, "从终端读口令（scrypt 模式，与 --recipient 二选一）")
 	fs.StringVar(&cfg.profile, "profile", "", "用于抽取配置的 profile（默认取清单头里的唯一 profile）")
 	fs.Var(&cfg.roots, "root", "覆盖 roots.json 中的 role=PATH（可重复）")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
@@ -161,6 +168,7 @@ func parseExport(ctx context.Context, args []string, stdout, stderr io.Writer) i
 func parseVerify(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	var cfg verifyConfig
+	fs.StringVar(&cfg.pubkey, "pubkey", "", "公钥文件（默认 ~/.config/packout/trusted_keys）")
 	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 结论")
 	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
 	pos, code := parse(fs, args, 1, verifyHelp, stdout, stderr)
@@ -177,6 +185,58 @@ func parseVerify(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	}
 	cfg.dir = pos[0]
 	return runVerify(ctx, cfg, stdout, stderr)
+}
+
+func parseSign(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("sign", flag.ContinueOnError)
+	var cfg signConfig
+	fs.StringVar(&cfg.key, "key", "", "minisign 私钥路径（默认 ~/.config/packout/minisign.key）")
+	fs.BoolVar(&cfg.generate, "generate", false, "密钥不存在时先生成一对（私钥 0600）")
+	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 摘要")
+	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
+	pos, code := parse(fs, args, 1, signHelp, stdout, stderr)
+	if code >= 0 {
+		return code
+	}
+	if len(pos) != 1 {
+		const msg = "sign 需要一个包目录"
+		if wantsJSON(args) {
+			_ = jsonEncode(stdout, errObject{Error: msg, Exit: exitUsage})
+		}
+		fmt.Fprintf(stderr, "packout: %s\n\n", msg)
+		return exitUsage
+	}
+	cfg.dir = pos[0]
+	return runSign(ctx, cfg, stdout, stderr)
+}
+
+func parseRestore(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
+	var cfg restoreConfig
+	fs.StringVar(&cfg.into, "into", "", "目标目录（必填）")
+	fs.BoolVar(&cfg.inPlace, "in-place", false, "允许写进非空目标；先算 diff，非空时必须再给 --force")
+	fs.BoolVar(&cfg.force, "force", false, "确认覆盖 --in-place 列出的差异")
+	fs.BoolVar(&cfg.dryRun, "dry-run", false, "只跑验签、目标检查、解密与计划，不写盘")
+	fs.BoolVar(&cfg.allowUnverified, "allow-unverified", false, "SIG 结论不是 ok 时仍继续（tampered 除外）")
+	fs.StringVar(&cfg.pubkey, "pubkey", "", "公钥文件（默认 ~/.config/packout/trusted_keys）")
+	fs.StringVar(&cfg.identity, "identity", "", "age identity 路径（默认 ~/.config/packout/identity.age）")
+	fs.BoolVar(&cfg.passphrase, "passphrase", false, "从终端读 secrets.age 口令")
+	fs.BoolVar(&cfg.json, "json", false, "stdout 输出可解析的 JSON 报告")
+	fs.BoolVar(&cfg.quiet, "quiet", false, "只输出错误")
+	pos, code := parse(fs, args, 1, restoreHelp, stdout, stderr)
+	if code >= 0 {
+		return code
+	}
+	if len(pos) != 1 {
+		const msg = "restore 需要一个包目录"
+		if wantsJSON(args) {
+			_ = jsonEncode(stdout, errObject{Error: msg, Exit: exitUsage})
+		}
+		fmt.Fprintf(stderr, "packout: %s\n\n", msg)
+		return exitUsage
+	}
+	cfg.pkg = pos[0]
+	return runRestore(ctx, cfg, stdout, stderr)
 }
 
 func parseProfile(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -291,6 +351,8 @@ const topHelp = `用法: packout <命令> [参数]
   report               由 manifest 渲染报告（默认起本机服务）
   export               打成状态包
   verify               校验一个包（只读）
+  sign                 用 minisign 私钥给包签名
+  restore              把包恢复到目标目录（默认只写空目录）
   profile list|probe|test  列内置、真机存在性探测、跑 selftest
   version              版本、commit、profile schema 版本
 
@@ -326,7 +388,11 @@ const exportHelp = `用法: packout export --src DIR --out DIR [--force]
                    reinstall/、REPORT.html），不碰无关顶层文件，因此往脏目录里
                    force 可能 verify 不干净
   --report FILE    REPORT.html 路径（默认取 --src/REPORT.html）
-  --identity FILE  identity 路径，仅用于"落在包内"警告
+  --identity FILE  identity 路径，仅用于包内/权限警告
+  --with-secrets   加密导出 RESTORE 凭据到 secrets.age；未给 --recipient 或
+                   --passphrase 时报用法错误
+  --recipient KEY  age1… 或 ssh-ed25519/ssh-rsa 公钥（可重复）
+  --passphrase     从终端读口令（不回显）；口令命令行传递会泄漏，故不用参数值
   --profile NAME   specified 配置抽取用的 profile（默认读清单头）
   --root role=PATH 覆盖 roots.json 的根映射（可重复）
   --json           stdout 输出可解析的 JSON 摘要
@@ -335,15 +401,60 @@ const exportHelp = `用法: packout export --src DIR --out DIR [--force]
 退出码: 0 完成 / 2 导出失败 / 3 用法或源错误 / 4 --out 非空
 `
 
-const verifyHelp = `用法: packout verify PKG_DIR
+const restoreHelp = `用法: packout restore PKG_DIR --into DIR [--allow-unverified] [--dry-run]
+                   [--in-place [--force]] [--pubkey FILE] [--identity FILE | --passphrase]
 
-校验一个包。结论词原样打印（P0 固定为 "hash-ok, unverified" 或 "unsigned"）。
+按固定顺序恢复：验 SIG → 目标门 → 解密 secrets.age → 计划 → 写 → 回读复验。
+默认目标必须不存在或为空；--in-place 才覆盖非空目标，并列 diff，diff 非空时必须 --force。
+config/ 中的 «secret:…» 占位符会现场替换为明文；找不到引用记 missing_secret 并继续。
+失败即停，已写文件保留、不回滚；L5 永不写盘，只进 needs_relogin。
+
+  --into DIR           目标目录（必填）
+  --in-place           允许非空目标；先列 diff
+  --force              确认执行 --in-place 列出的覆盖
+  --dry-run            只跑前四步，零写入
+  --allow-unverified   SIG 结论不是 ok 时仍继续（tampered 除外；红字提示）
+  --pubkey FILE        公钥文件（默认 ~/.config/packout/trusted_keys）
+  --identity FILE      age identity（默认 ~/.config/packout/identity.age）
+  --passphrase         从终端读口令（与 --identity 二选一）
+  --json               stdout 输出可解析的 JSON 报告
+  --quiet              只输出错误
+
+报告三段：restored / needs_reinstall / needs_relogin，逐条带来源 Unit id。
+退出码: 0 完成 / 2 执行或校验失败（含 E-RST-*）/ 3 用法 / 4 目标非空且未 --force / 5 中断
+`
+
+const verifyHelp = `用法: packout verify PKG_DIR [--pubkey FILE]
+
+校验一个包。结论词原样打印：
+  ok                  签名有效且内容匹配（只有它能说"可以恢复"）
+  hash-ok, unverified 内容匹配但没有可用公钥
+  tampered            内容与 SIG 不符（签名在也一样）
+  unsigned            内容匹配但包没有签名
+  bad-signature       签名在，但没有可信公钥能验证它
 只读，不写任何东西。
 
-  --json   把结论与问题输出为可解析的 JSON
-  --quiet  只输出错误
+  --pubkey FILE  公钥文件（一行一个，'#' 注释）；不给时读
+                 ~/.config/packout/trusted_keys（存在才读）
+  --json         把结论与问题输出为可解析的 JSON
+  --quiet        只输出错误
 
-退出码: 0 结论通过 / 2 结论失败 / 3 用法错误
+首次用 --pubkey 见到的公钥会打印 SHA256 指纹并提示 TOFU，请用另一渠道核对。
+退出码: 0 结论为 ok 或 hash-ok, unverified / 2 其余结论 / 3 用法或公钥错误
+`
+
+const signHelp = `用法: packout sign PKG_DIR [--key FILE] [--generate]
+
+对 SIG.json 与 manifest/ 的哈希树签名，写 SIG.json.minisig。签名文件本身
+不参与被签名内容。包必须已有有效 SIG 与 manifest。
+
+  --key FILE   minisign 私钥（默认 ~/.config/packout/minisign.key，须为 0600）
+  --generate   密钥不存在时先生成一对，公钥写到 <key>.pub
+  --json       stdout 输出可解析的 JSON 摘要
+  --quiet      只输出错误
+
+签名只证明"是谁打的包"；内容完整性仍由 SIG 的整包哈希树保证。
+退出码: 0 完成 / 2 签名失败 / 3 用法或密钥错误
 `
 
 const profileHelp = `用法: packout profile list

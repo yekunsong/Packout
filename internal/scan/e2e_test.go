@@ -320,7 +320,7 @@ func TestBuiltinClaudeCodePipelineE2E(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pack.Verify: %v (verdict %+v)", err, v)
 	}
-	if v.Conclusion != pack.ConclusionHashOKUnverified {
-		t.Fatalf("verify conclusion = %q, want %q", v.Conclusion, pack.ConclusionHashOKUnverified)
+	if v.Conclusion != pack.ConclusionUnsigned {
+		t.Fatalf("verify conclusion = %q, want %q", v.Conclusion, pack.ConclusionUnsigned)
 	}
 }

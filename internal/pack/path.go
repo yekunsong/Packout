@@ -182,6 +182,11 @@ func safeJoin(root, rel string) (string, error) {
 	return p, nil
 }
 
+// SafeJoin maps a validated package-relative path onto root and re-checks
+// containment by segment (INV-R02), so a defective validator cannot become a
+// write-through. Restore uses it for every destination path.
+func SafeJoin(root, rel string) (string, error) { return safeJoin(root, rel) }
+
 func pathErr(p, detail string) error {
 	return fmt.Errorf("%w: %q: %s", ErrInvalidPath, p, detail)
 }

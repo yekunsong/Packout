@@ -52,9 +52,9 @@ type SIGEntry struct {
 
 // SIG is the SIG.json document.
 //
-// Signed is always false in P0: SIG provides integrity against accidental or
-// unsophisticated modification, not sender authentication. Verify therefore
-// never concludes "ok"; it says "hash-ok, unverified" (D-008 §7, INV-C06).
+// Signed is always false: signatures live in the sibling SIG.json.minisig
+// (D-043), not in SIG. Without that file verify says "hash-ok, unverified";
+// SIG alone never authenticates the sender (INV-C06).
 type SIG struct {
 	Format        string     `json:"format"`
 	FormatVersion int        `json:"format_version"`
