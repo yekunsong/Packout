@@ -48,6 +48,8 @@ func mainWithArgs(args []string, stdout, stderr io.Writer) int {
 		return parseSign(ctx, rest, stdout, stderr)
 	case "restore":
 		return parseRestore(ctx, rest, stdout, stderr)
+	case "mcp":
+		return parseMCP(ctx, rest, stdout, stderr)
 	case "profile":
 		return parseProfile(ctx, rest, stdout, stderr)
 	case "version":
@@ -353,6 +355,7 @@ const topHelp = `用法: packout <命令> [参数]
   verify               校验一个包（只读）
   sign                 用 minisign 私钥给包签名
   restore              把包恢复到目标目录（默认只写空目录）
+  mcp                  stdio 上的只读 MCP 工具（roots/summary/find/explain/verify/restore_plan）
   profile list|probe|test  列内置、真机存在性探测、跑 selftest
   version              版本、commit、profile schema 版本
 

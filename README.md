@@ -22,6 +22,7 @@ packout sign   ./pack --key ~/.config/packout/minisign.key   # 签名（覆盖 S
 packout verify ./pack --pubkey ./me.pub   # → ok / tampered / bad-signature / unsigned
 packout restore ./pack --into ~/.claude-home   # 恢复到空目录；未签名默认拒绝
 packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计划
+packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdio）
 ```
 
 ## 安全姿态
@@ -36,7 +37,7 @@ packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计�
 
 ## P0 不做
 
-删源、GUI、遥测。MCP 只做只读计划面（见 `docs/design-mcp.md`），不代执行。
+删源、GUI、遥测。MCP 只做只读面（见 `docs/design-mcp.md`），不代执行。
 
 ## 已知限制
 
@@ -47,6 +48,7 @@ packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计�
 - 报告里的凭据只到前缀与指纹，无法确认"是不是这一条"的末位。
 - `secret_ref` 只写在配置占位符里，不写进清单；因此不持密钥时无法校验引用有效性。
 - 未签名的包 `verify` 退出码是 **2**（`unsigned`）。P0 时代的 `hash-ok, unverified` 不再是终态。
+- MCP 的 `restore_plan` 只接 age identity；口令加密的包在 MCP 里拿不到计划（CLI 可以 `--passphrase`）。
 
 ## 平台
 

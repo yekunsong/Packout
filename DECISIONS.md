@@ -340,6 +340,8 @@ Windows `chmod` 只映射只读位，`0755`/`0644` 这类 POSIX 权限不成立�
 因此**最终验证在本机两个环境完成**：Windows（便携 Go 1.27.3）+ WSL Ubuntu（Go 1.27.3），并额外在**全新克隆**上各跑一遍全量。
 待远端恢复后应补跑 `scripts/rtest.sh`；在此之前，任何"远程已验证"的说法都不成立。
 
+**更新（2026-11-11 10:12）**：sshd 的 banner 恢复，TCP 与认证阶段都能走到底，但 CI 公钥被拒（`Permission denied (publickey,password)`）。本机无 `sshpass`/`expect`/`paramiko`，无法在非交互环境里送口令，故远端验证仍缺位。
+
 ## D-040 P1 范围与顺序
 状态：已定（2026-11-11）。
 P1 = 加密打包 + restore + 签名 + MCP（只读面）。
@@ -412,3 +414,17 @@ P1 的安全门槛比 P0 高一个量级：P0 只读，P1 开始往磁盘写字�
 - `--force` 不隐含 `--in-place`。
 - `restored` 段只列文件；计划段列目录与文件。
 - Windows 上符号链接降级测试靠注入 `Symlink` 错误覆盖（无权限建链接），不是真实文件系统行为；Linux 用真实包验证。
+
+## D-047 MCP 只读面验收与 7 项裁决
+通过。`internal/mcp`（mcp.go 585 行、tools.go 967 行、测试 985 行）+ `cmd/packout/cmd_mcp.go`；双侧 `go vet ./... && go test ./...` 全绿，`gofmt -l` 为空。
+**独立 e2e**（`evidence/mcp-e2e.py` / `mcp-e2e-windows.py`，真实 scan→export→sign→mcp 会话）：initialize + 通知 + tools/list + 五工具调用，7 条响应、6 个工具、工具零错误、单条最大 4119/4631 字节、往返前后 scan/包/目标树哈希不变（零写入）；WSL 与 Windows 各一遍通过。
+
+1. **`restore_plan` 固定 `InPlace/Force/AllowUnverified=true`**，只读出一个 diff 计划，并在结果里回传 `sig_conclusion`。理由：只读阶段没有"人按不按 --force"这回事；真正的写仍走 CLI 的显式门。
+2. **新增启动参数 `--into` / `--identity` / `--pubkey`**。它们都是 `restore.Run`/`Verify` 的硬参数，必须同样在启动时固定，不能由模型传。
+3. **find/explain 只返回允许根内的 Unit**，根外计入 `outside_root_skipped` 或返回 `outside_root`。没有 `--root` 时回落 manifest 记录的根——仍只能经由启动参数 `--out` 到达。
+4. **严格 schema**：未知键直接 `bad_arguments`，不让注入字段溜过；`explain` 要求 id/path/path_key 恰好一个。
+5. **截断兜底三道**：`fitList` 二分收缩、各工具 `enforceBound`、`makeCallResult` 超限改 `result_too_large`。`units`/`signals` 等键在收缩后仍保留为空数组，不整键删除。
+6. **`scan.fingerprint` = `manifest.index.json` 的 sha256**，每次调用重算；调用方据此判断两次观察是否同一份扫描（INV-I06）。不缓存任何 Unit。
+7. **新增 `TestManifestOutsideOutIsIgnored`**：根目录里散落的 `manifest.index.json` 不得被读，只有 `--out` 下的才认。
+
+偏差接受记录：`source` 指向 manifest/包目录（本命令不写文件，没法给"全文文件"）；`--passphrase` 模式暂不适用于 MCP（restore_plan 只接 identity）——包用口令加密时 `restore_plan` 会返回解密失败，**写进已知限制**。

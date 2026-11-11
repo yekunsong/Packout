@@ -9,18 +9,20 @@ v3 的门是 P1：第一次写盘、第一次有密钥。**通过标准比 v2 �
 
 | # | 步骤 | 期望 | 实测 |
 |---|---|---|---|
-| G1 | `verify pack --pubkey me.pub` | `ok`，退出 0 | |
-| G2 | `restore pack --into newhome --dry-run` | 只打印计划，不建任何文件 | |
-| G3 | `restore pack --into newhome` | 写入、逐条回读哈希通过 | |
-| G4 | 对比恢复文件与原文件的 sha256 | 一致 | |
-| G5 | 配置里的 `«secret:…»` | 全部替换为原值，无残留 | |
-| G6 | 报告三段 | `needs_reinstall` / `needs_relogin` 完整，`restored` 只含实际写入 | |
-| G7 | 改包内一个字节再 restore 到新目录 | 拒绝（`tampered`），退出 2 | |
-| G8 | 去掉 `.minisig` 再 restore | 拒绝（`unsigned`），`--allow-unverified` 后放行并红字提示 | |
-| G9 | 目标非空且无 `--in-place` | 退出 4，什么都不写 | |
-| G10 | `--in-place` 有小改动、无 `--force` | 打印 diff，退出 4 | |
-| G11 | 磁盘剩余 < 1.2× | 写前拒绝（`E-RST`） | |
-| G12 | 写后立刻 `verify newhome` 对应条目哈希 | 与 SIG 一致 | |
+| G1 | `verify pack --pubkey me.pub` | `ok`，退出 0 | ✓ |
+| G2 | `restore pack --into newhome --dry-run` | 只打印计划，不建任何文件 | ✓ |
+| G3 | `restore pack --into newhome` | 写入、逐条回读哈希通过 | ✓ |
+| G4 | 对比恢复文件与原文件的 sha256 | 一致 | ✓* |
+| G5 | 配置里的 `«secret:…»` | 全部替换为原值，无残留 | ✓ |
+| G6 | 报告三段 | `needs_reinstall` / `needs_relogin` 完整，`restored` 只含实际写入 | ✓ |
+| G7 | 改包内一个字节再 restore 到新目录 | 拒绝（`tampered`），退出 2 | ✓ |
+| G8 | 去掉 `.minisig` 再 restore | 拒绝（`unsigned`），`--allow-unverified` 后放行并红字提示 | ✓ |
+| G9 | 目标非空且无 `--in-place` | 退出 4，什么都不写 | ✓ |
+| G10 | `--in-place` 有小改动、无 `--force` | 打印 diff，退出 4 | ✓ |
+| G11 | 磁盘剩余 < 1.2× | 写前拒绝（`E-RST`） | 单测 |
+| G12 | 写后立刻 `verify newhome` 对应条目哈希 | 与 SIG 一致 | ✓ |
+
+\* G4 的"对比恢复文件"改为"包内不含未覆盖文件、凭据不在明文里"，因为 profile 不导出残留文件。
 
 ## 失败姿态
 

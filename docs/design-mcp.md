@@ -1,12 +1,14 @@
 # MCP 面设计（P1 末）
 
+状态：已实现（D-047）。验收记录见 `D:\Study\worker-ops\2026-11-11-packout-p1\verification.md`。
+
 MCP 只暴露**读**与**计划**，不暴露执行。理由见 `threat-model.md` 第 8 节：模型能读到的东西最多只能影响"看什么"，不能影响"写哪里"。
 
 ## 启动
 
-`packout mcp --out DIR [--root role=PATH]...`
+`packout mcp --out DIR [--package DIR] [--root role=PATH]...`
 
-根与输出目录在**启动参数**里定死，运行期不接受任意路径（INV-I03）。没给根就用 profile 默认值。
+根、扫描输出目录与包目录在**启动参数**里定死，运行期不接受任意路径（INV-I03）。`--package` 只服务 `verify` 与 `restore_plan`，缺省时这两个工具返回 `not_configured`。没给根就用 profile 默认值。
 
 ## 工具（全部只读）
 
@@ -17,7 +19,7 @@ MCP 只暴露**读**与**计划**，不暴露执行。理由见 `threat-model.md
 | `find` | 按 layer/entry/路径片段过滤，最多 N 条 | 分页靠 offset |
 | `explain` | 单个 Unit 的全部 signals 与出处 | |
 | `verify` | 包的结论词 | 只读 |
-| `restore_plan` | dry-run 的恢复计划 | 不写 |
+| `restore_plan` | dry-run 的恢复计划 + `sig_conclusion` | 不写；固定 InPlace/Force/AllowUnverified |
 
 ## 不暴露
 
