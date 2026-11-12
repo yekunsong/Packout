@@ -102,11 +102,15 @@ type Report struct {
 	PlannedBytes      int64       `json:"planned_bytes"`
 	Plan              []PlanEntry `json:"plan,omitempty"`
 	Restored          []Restored  `json:"restored"`
-	NeedsReinstall    []Need      `json:"needs_reinstall"`
-	NeedsRelogin      []Need      `json:"needs_relogin"`
-	Landing           []Landing   `json:"landing,omitempty"`
-	Problems          []Problem   `json:"problems,omitempty"`
-	Warnings          []string    `json:"warnings,omitempty"`
+	// Overwritten counts existing files this run actually replaced. It stays
+	// 0 for --dry-run (nothing is written) and for restores into an empty
+	// target. packout keeps no backup of what it overwrites.
+	Overwritten    int       `json:"overwritten"`
+	NeedsReinstall []Need    `json:"needs_reinstall"`
+	NeedsRelogin   []Need    `json:"needs_relogin"`
+	Landing        []Landing `json:"landing,omitempty"`
+	Problems       []Problem `json:"problems,omitempty"`
+	Warnings       []string  `json:"warnings,omitempty"`
 }
 
 type payload struct {
@@ -302,10 +306,16 @@ func Run(ctx context.Context, opt Options) (*Report, error) {
 			if err := writeDir(it.target); err != nil {
 				return rep, failEntry(rep, it, err)
 			}
+			if it.action == "overwrite" {
+				rep.Overwritten++
+			}
 		case it.entry.Type == pack.TypeSymlink:
 			flattened, err := writeSymlink(into, it.target, it.link, symlink)
 			if err != nil {
 				return rep, failEntry(rep, it, err)
+			}
+			if it.action == "overwrite" {
+				rep.Overwritten++
 			}
 			if flattened {
 				it.data = []byte(it.link)
@@ -324,6 +334,9 @@ func Run(ctx context.Context, opt Options) (*Report, error) {
 		case it.entry.Type == pack.TypeHardlink, it.action != "same":
 			if err := writeFile(into, it); err != nil {
 				return rep, failEntry(rep, it, err)
+			}
+			if it.action == "overwrite" {
+				rep.Overwritten++
 			}
 			if opt.AfterWrite != nil {
 				opt.AfterWrite(it.target)

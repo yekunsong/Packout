@@ -590,3 +590,59 @@ func TestMapRejectsUnsafePaths(t *testing.T) {
 		}
 	}
 }
+
+// TestOverwriteCountIsHonest pins overwritten: it counts files actually
+// replaced, stays 0 on a fresh target and on --dry-run, and gives the CLI the
+// number it needs to warn that packout keeps no backup.
+func TestOverwriteCountIsHonest(t *testing.T) {
+	pkg, _, pub := buildPackage(t, false)
+	into := filepath.Join(t.TempDir(), "target")
+	opt := optInto(pkg, into)
+	opt.PubKeyPath = pub
+	rep, err := Run(context.Background(), opt)
+	must(t, err)
+	if rep.Overwritten != 0 {
+		t.Fatalf("fresh restore overwritten = %d, want 0", rep.Overwritten)
+	}
+	var victim string
+	for _, x := range rep.Restored {
+		if fi, lerr := os.Lstat(x.Target); lerr == nil && fi.Mode().IsRegular() {
+			victim = x.Target
+			break
+		}
+	}
+	if victim == "" {
+		t.Fatal("no restored regular file to overwrite")
+	}
+	must(t, os.WriteFile(victim, []byte("changed on disk"), 0o644))
+
+	next := optInto(pkg, into)
+	next.PubKeyPath = pub
+	next.InPlace = true
+	next.Force = true
+	next.DryRun = true
+	dry, err := Run(context.Background(), next)
+	must(t, err)
+	if dry.Overwritten != 0 {
+		t.Fatalf("dry-run overwritten = %d, want 0", dry.Overwritten)
+	}
+	ow := 0
+	for _, p := range dry.Plan {
+		if p.Action == "overwrite" {
+			ow++
+		}
+	}
+	if ow != 1 {
+		t.Fatalf("dry-run plan overwrites = %d, want 1", ow)
+	}
+
+	next.DryRun = false
+	rep2, err := Run(context.Background(), next)
+	must(t, err)
+	if rep2.Overwritten != 1 {
+		t.Fatalf("in-place force overwritten = %d, want 1", rep2.Overwritten)
+	}
+	if b, rerr := os.ReadFile(victim); rerr != nil || string(b) == "changed on disk" {
+		t.Fatalf("victim was not overwritten: %q %v", b, rerr)
+	}
+}

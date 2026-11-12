@@ -181,7 +181,9 @@ const packHelp = `用法: packout pack <目录> [--out DIR] [选择/加密/签�
   --preset P       minimal|standard|full
   --with-sessions  会话内容一起带走（等价 --preset full；与其它 --preset 冲突）
   --include LIST / --exclude LIST  同 scan
+  --follow-symlinks  跟随符号链接/联接点（同 scan）
   --sessions-since D / --sessions-project S / --sessions-max-per-project N  同 scan
+  --stable-salt    使用 ~/.config/packout/salt 的持久 salt（同 scan）
   --with-secrets / --recipient / --passphrase / --passphrase-file  同 export
   --identity FILE  identity 路径
   --sign           导出后签名（--seal 与 --key 也会打开它）
@@ -296,7 +298,7 @@ repo → <into>/repo）；结束时打印“落地：…”摘要。<into> 是�
   --into DIR           目标目录（必填）
   --map ROLE=PATH      覆盖角色的落地根（可重复；PATH 相对 --into）
   --in-place           允许非空目标；先列 diff
-  --force              确认执行 --in-place 列出的覆盖
+  --force              确认执行 --in-place 列出的覆盖（覆盖不备份）
   --dry-run            只跑前四步，零写入
   --allow-unverified   SIG 结论不是 ok 时仍继续（tampered 与 empty 除外；红字提示）
   --pubkey FILE        公钥文件（默认读 <configDir>/trusted_keys）
@@ -307,6 +309,8 @@ repo → <into>/repo）；结束时打印“落地：…”摘要。<into> 是�
   --quiet              只输出错误
 
 报告三段：restored / needs_reinstall / needs_relogin，逐条带来源 Unit id。
+覆盖既有文件时报告结束打印“已覆盖 N 个既有文件（不做备份）”；JSON 报告带
+overwritten 计数。--dry-run 不写盘，也不报“已覆盖”。
 退出码: 0 完成 / 2 执行或校验失败（含 E-RST-*）/ 3 用法 / 4 目标非空且未 --force / 5 中断
 
 下一步：packout doctor 自检，或 packout status 看整体状态
@@ -316,7 +320,7 @@ const verifyHelp = `用法: packout verify PKG_DIR [--pubkey FILE]
 
 校验一个包。结论词原样打印：
   ok                  签名有效且内容匹配（只有它能说"可以恢复"）
-  bad-signature       签名在，但没有可用公钥或公钥不符（trusted_keys 缺失/为空也算）
+  bad-signature       签名在，但没有可信公钥或签名不符（trusted_keys 缺失/为空也算）
   tampered            内容与 SIG 不符（签名在也一样）
   unsigned            内容匹配但包没有签名
   failed              SIG/manifest 结构损坏，无法完成校验

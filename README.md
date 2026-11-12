@@ -31,7 +31,8 @@ packout export --src ./out --out ./pack   # 打成可校验的基线包（自动
 packout export --src ./out --out ./pack --with-secrets --recipient age1…  # 凭据进 secrets.age
 packout export --src ./out --out ./pack --with-secrets --passphrase-file ./pw   # 口令取自文件第一行
 packout sign   ./pack --key ~/.config/packout/minisign.key   # 签名（覆盖 SIG.json + manifest/）
-packout verify ./pack --pubkey ./me.pub   # → ok / tampered / bad-signature / unsigned
+packout verify ./pack   # → ok / tampered / bad-signature / unsigned（默认读 init 写入的 trusted_keys）
+packout verify ./pack --pubkey ./me.pub   # 换机核对来源：显式指定另一渠道拿到的公钥
 # 恢复与查看：把同一个基线带到新的工作区
 packout restore ./pack --into ~/.claude-home   # 默认落到 <into>/home、<into>/repo；未签名默认拒绝
 packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计划
@@ -48,12 +49,15 @@ packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdi
 `%APPDATA%\packout\config.json`，Unix 0600）。之后 scan/export/restore/mcp
 可以不重复 `--root`/`--identity`/`--pubkey`/`--preset`。**CLI 参数永远优先**；
 配置坏了退出 3 并打印路径。未知键直接报错，避免拼错字段被静默忽略。
+`init` 还会把本机 minisign 公钥写进 `trusted_keys`（0600，已有内容只追加），
+因此本机 `pack --seal` 之后 `verify` 默认就是 `ok`；只有换机核对来源时，才需要
+`--pubkey` 显式指定另一渠道拿到的公钥。
 
 ## 安全姿态
 
 - **扫描只读**。`scan`/`report` 不删、不改、不移动任何被扫描的文件；扫描期唯一的写是 `--out` 与 SQLite 的 `-shm`。
 - **写只有两个入口**：`export` 只写 `--out`，`restore` 只写 `--into`（默认要求空目录，`--in-place` 才覆盖）。
-- **未签名不是 ok**。`verify` 对没有有效签名的包给 `unsigned`/`hash-ok, unverified`/`bad-signature`，退出码 2；`restore` 只放行 `ok`。
+- **未签名不是 ok**。`verify` 对没有有效签名的包给 `unsigned` 或 `bad-signature`（签名在但没有可信公钥也归后者），退出码 2；`restore` 只放行 `ok`。P0 时代的 `hash-ok, unverified` 只作为历史结论词保留，不再是现役输出。
 - **每条结论都带信号**，没有信号的结论不出现；置信度低的自动落回"保留"。
 - **残留兜底**。没被任何规则命中的东西会被单列出来，而不是消失。代价是：残留项不做内容级凭据检测，报告里会写明。
 - **凭据只露前缀和指纹**，完整值不进清单；分三类——只存引用、可加密带走、只能重登。

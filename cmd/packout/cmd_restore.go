@@ -198,17 +198,37 @@ func printRestoreReport(r *reporter, rep *restore.Report, targetLabel string) {
 	for _, w := range rep.Warnings {
 		r.warn("packout: 警告：%s", w)
 	}
+	// Overwrites are irreversible here: packout keeps no backup. Only say so
+	// when something was actually replaced (never on --dry-run).
+	if !rep.DryRun && rep.Overwritten > 0 {
+		r.info("已覆盖 %d 个既有文件（packout 不做备份；需要保留请先自行复制）", rep.Overwritten)
+	}
 }
 
 // printLanding names where each role actually landed (absolute paths, after
 // applying --map), so a user on a new machine knows what to copy where.
+// When every role came from --map the copy hint would be self-contradictory:
+// the files are already at their final place.
 func printLanding(r *reporter, rep *restore.Report) {
 	if rep == nil || r.quiet || r.json || len(rep.Landing) == 0 {
 		return
 	}
 	parts := make([]string, 0, len(rep.Landing))
+	allMapped := true
 	for _, l := range rep.Landing {
+		if !l.Mapped {
+			allMapped = false
+		}
 		parts = append(parts, fmt.Sprintf("%s → %s", l.Role, l.Path))
 	}
-	r.info("落地：%s（把需要的子目录复制到目标机器对应根，或见 --map）", strings.Join(parts, "，"))
+	line := "落地：" + strings.Join(parts, "，")
+	switch {
+	case allMapped && rep.DryRun:
+		line += "（--map 生效；干跑未写入）"
+	case allMapped:
+		line += "（--map 生效，已直接写到这里）"
+	default:
+		line += "（把需要的子目录复制到目标机器对应根，或见 --map）"
+	}
+	r.info("%s", line)
 }

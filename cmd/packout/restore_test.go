@@ -1,13 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"packout/internal/pack"
+	"packout/internal/restore"
 )
 
 // signedPkg is exportPkg plus a signature and the matching public key.
@@ -249,5 +252,131 @@ func TestRestoreMap(t *testing.T) {
 	// --into stays mandatory even with a mapping.
 	if code, _, _ := run(t, "restore", pkg, "--map", "home=."); code != exitUsage {
 		t.Fatalf("--map without --into: code=%d, want %d", code, exitUsage)
+	}
+}
+
+// TestPrintLandingHonesty pins the wording branch: when every role came from
+// --map, telling the user to copy subdirectories contradicts what just
+// happened. Dry-run must not claim the files are already there.
+func TestPrintLandingHonesty(t *testing.T) {
+	render := func(rep *restore.Report) string {
+		t.Helper()
+		var out bytes.Buffer
+		r := &reporter{stdout: &out, stderr: io.Discard}
+		printLanding(r, rep)
+		return out.String()
+	}
+
+	mapped := &restore.Report{Landing: []restore.Landing{
+		{Role: "home", Path: "/new/home", Mapped: true},
+		{Role: "repo", Path: "/new/repo", Mapped: true},
+	}}
+	if got := render(mapped); !strings.Contains(got, "--map 生效，已直接写到这里") ||
+		strings.Contains(got, "复制到目标机器") {
+		t.Fatalf("all-mapped landing still asks to copy: %q", got)
+	}
+	if got := render(mapped); !strings.Contains(got, "home → /new/home") ||
+		!strings.Contains(got, "repo → /new/repo") {
+		t.Fatalf("landing lost resolved paths: %q", got)
+	}
+
+	dry := &restore.Report{DryRun: true, Landing: []restore.Landing{
+		{Role: "home", Path: "/new/home", Mapped: true},
+	}}
+	if got := render(dry); strings.Contains(got, "已直接写到这里") ||
+		!strings.Contains(got, "干跑未写入") {
+		t.Fatalf("dry-run landing claims a write: %q", got)
+	}
+
+	partial := &restore.Report{Landing: []restore.Landing{
+		{Role: "home", Path: "/new/home", Mapped: true},
+		{Role: "repo", Path: "/new/repo"},
+	}}
+	if got := render(partial); !strings.Contains(got, "复制到目标机器") ||
+		strings.Contains(got, "--map 生效") {
+		t.Fatalf("partial mapping dropped the copy hint: %q", got)
+	}
+}
+
+// TestRestoreOverwriteNotice checks the honest overwrite line end to end:
+// printed with a count when files are replaced, absent on --dry-run.
+func TestRestoreOverwriteNotice(t *testing.T) {
+	pkg, pub := signedPkg(t)
+	into := filepath.Join(t.TempDir(), "target")
+	if code, _, stderr := run(t, "restore", pkg, "--into", into, "--pubkey", pub, "--quiet"); code != exitOK {
+		t.Fatalf("first restore: code=%d stderr=%q", code, stderr)
+	}
+
+	victim := ""
+	if err := filepath.WalkDir(into, func(p string, d os.DirEntry, err error) error {
+		if err != nil || victim != "" || !d.Type().IsRegular() {
+			return nil
+		}
+		victim = p
+		return nil
+	}); err != nil {
+		t.Fatalf("walk restored tree: %v", err)
+	}
+	if victim == "" {
+		t.Fatal("no restored regular file to overwrite")
+	}
+	mustWrite(t, victim, []byte("changed on disk"))
+
+	code, stdout, stderr := run(t, "restore", pkg, "--into", into,
+		"--in-place", "--force", "--pubkey", pub)
+	if code != exitOK {
+		t.Fatalf("in-place force: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "已覆盖 1 个既有文件") || !strings.Contains(stdout, "不做备份") {
+		t.Fatalf("overwrite notice missing or dishonest:\n%s", stdout)
+	}
+
+	mustWrite(t, victim, []byte("changed again"))
+	code, stdout, stderr = run(t, "restore", pkg, "--into", into,
+		"--in-place", "--force", "--dry-run", "--pubkey", pub)
+	if code != exitOK {
+		t.Fatalf("dry-run in-place force: code=%d stderr=%q", code, stderr)
+	}
+	if strings.Contains(stdout, "已覆盖") || strings.Contains(stdout, "不做备份") {
+		t.Fatalf("dry-run claimed an overwrite:\n%s", stdout)
+	}
+}
+
+// TestRestoreJSONOverwritten pins the additive JSON field.
+func TestRestoreJSONOverwritten(t *testing.T) {
+	pkg, pub := signedPkg(t)
+	into := filepath.Join(t.TempDir(), "target")
+	if code, _, stderr := run(t, "restore", pkg, "--into", into, "--pubkey", pub, "--quiet"); code != exitOK {
+		t.Fatalf("first restore: code=%d stderr=%q", code, stderr)
+	}
+	var victim string
+	if err := filepath.WalkDir(into, func(p string, d os.DirEntry, err error) error {
+		if err != nil || victim != "" || !d.Type().IsRegular() {
+			return nil
+		}
+		victim = p
+		return nil
+	}); err != nil {
+		t.Fatalf("walk restored tree: %v", err)
+	}
+	mustWrite(t, victim, []byte("changed on disk"))
+
+	code, stdout, stderr := run(t, "restore", pkg, "--into", into,
+		"--in-place", "--force", "--pubkey", pub, "--json")
+	if code != exitOK {
+		t.Fatalf("json in-place force: code=%d stderr=%q", code, stderr)
+	}
+	var rep struct {
+		Overwritten *int               `json:"overwritten"`
+		Restored    []restore.Restored `json:"restored"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &rep); err != nil {
+		t.Fatalf("stdout is not one JSON value: %v (%q)", err, stdout)
+	}
+	if rep.Overwritten == nil || *rep.Overwritten != 1 {
+		t.Fatalf("overwritten = %v, want 1 (%q)", rep.Overwritten, stdout)
+	}
+	if len(rep.Restored) == 0 {
+		t.Fatalf("restored segment disappeared: %q", stdout)
 	}
 }
