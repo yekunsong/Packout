@@ -21,6 +21,31 @@ restore 是整个项目第一次往磁盘写用户数据。它比 export 危险�
 - `--dry-run` 等价于只跑 1–4 步。
 - 目标在源目录之内（原地重扫）要检测并提示。
 
+## 落地与 --map
+
+默认落地是角色镜像：`config/<role>/…` → `<into>/<role>/…`（`home` → `<into>/home`，
+`repo` → `<into>/repo`，`reinstall/…` → `<into>/reinstall/…`）。`--into` 是状态根，
+不是包副本；换机器时它往往不是用户想直接用的目录。
+
+`--map ROLE=PATH`（可重复）把某个角色的落地根改到 `<into>/PATH`：`PATH` 必须是
+相对 `--into` 的路径（`"."` 表示 `--into` 本身），绝对路径、盘符、`~` 与含 `..`
+的路径一律拒绝。未给 `--map` 的角色仍落 `<into>/ROLE`，不传 `--map` 时行为与
+之前逐字节一致。映射在 `buildPlan` 生成 `payload.target` 时完成，因此 diff
+（`actionFor`）、回读校验（`verifyReadBack`）、`Within` 越界检查与
+`extraTargets` 警告都自动按映射后的路径工作；写入永远发生在 `--into` 之内。
+
+映射不改变任何门禁：目标非空仍要 `--in-place`，diff 非空仍要 `--force`；
+`--dry-run` 与 `drill` 只展示映射后的计划、不写盘。结束时报告打印
+`落地：home → <绝对路径>，repo → <绝对路径>`，让人知道该把哪些子目录搬到
+目标机器。
+
+新机器示例（`--into $HOME` 非空，所以先看 diff）：
+
+```bash
+packout restore ./pack --into $HOME --in-place --dry-run --map home=. --map repo=work/proj2
+packout restore ./pack --into $HOME --in-place --force  --map home=. --map repo=work/proj2
+```
+
 ## 报告与退出码
 
 `E-RST-*` 全部映射到退出码 2，除了用法错误（3）与目标非空（4）。

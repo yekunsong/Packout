@@ -39,6 +39,11 @@ type Options struct {
 	// TrustedKeysPath is verify's trust store (config trusted_keys or the
 	// per-user default). --pubkey still wins inside verify.
 	TrustedKeysPath string
+	// Map overrides where one role lands. Values are paths relative to Into
+	// ("." means Into itself); roles absent from Map keep landing at
+	// Into/<role>, exactly as before. Absolute paths, drive letters, "~" and
+	// ".." segments are refused.
+	Map map[string]string
 	// Crypt selects the decryption identity or passphrase.
 	Crypt pack.CryptOptions
 	// OnKeySeen forwards TOFU reporting from verify.
@@ -78,6 +83,14 @@ type Need struct {
 	Layer  string `json:"layer,omitempty"`
 }
 
+// Landing is one role's resolved root under the target. Path is absolute:
+// either Into/<role> or the resolved --map root.
+type Landing struct {
+	Role   string `json:"role"`
+	Path   string `json:"path"`
+	Mapped bool   `json:"mapped,omitempty"`
+}
+
 // Report is the three-part result plus the SIG gate read-out.
 type Report struct {
 	Package           string      `json:"package"`
@@ -91,6 +104,7 @@ type Report struct {
 	Restored          []Restored  `json:"restored"`
 	NeedsReinstall    []Need      `json:"needs_reinstall"`
 	NeedsRelogin      []Need      `json:"needs_relogin"`
+	Landing           []Landing   `json:"landing,omitempty"`
 	Problems          []Problem   `json:"problems,omitempty"`
 	Warnings          []string    `json:"warnings,omitempty"`
 }
@@ -127,6 +141,10 @@ func Run(ctx context.Context, opt Options) (*Report, error) {
 		return nil, fmt.Errorf("%w: %v", ErrUsage, err)
 	}
 	into, err := fsx.Abs(opt.Into)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrUsage, err)
+	}
+	mapping, err := normalizeMap(opt.Map)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUsage, err)
 	}
@@ -219,7 +237,7 @@ func Run(ctx context.Context, opt Options) (*Report, error) {
 	if err != nil {
 		return rep, fmt.Errorf("%w: SIG: %v", ErrCorrupt, err)
 	}
-	items, planErr := buildPlan(pkg, into, sig, units, secrets, rep)
+	items, planErr := buildPlan(pkg, into, mapping, sig, units, secrets, rep)
 	rep.Plan = make([]PlanEntry, 0, len(items))
 	var budget int64
 	for i := range items {
@@ -496,8 +514,9 @@ func substitute(data []byte, idx *secretIndex, rel, unit string, rep *Report) []
 
 // ---- planning -------------------------------------------------------------
 
-func buildPlan(pkg, into string, sig *pack.SIG, units map[string]string, secrets *secretIndex, rep *Report) ([]payload, error) {
+func buildPlan(pkg, into string, mapping map[string]string, sig *pack.SIG, units map[string]string, secrets *secretIndex, rep *Report) ([]payload, error) {
 	var items []payload
+	landing := map[string]Landing{}
 	for i := range sig.Entries {
 		e := &sig.Entries[i]
 		rel, ok := payloadRel(e.Path)
@@ -509,10 +528,19 @@ func buildPlan(pkg, into string, sig *pack.SIG, units map[string]string, secrets
 			rep.Problems = append(rep.Problems, Problem{Code: "rst_path_escape", Path: e.Path, Detail: err.Error()})
 			return items, fmt.Errorf("%w: %s: %v", ErrCorrupt, e.Path, err)
 		}
-		dst, err := pack.SafeJoin(into, rel)
+		dst, err := mappedTarget(into, rel, mapping)
 		if err != nil {
 			rep.Problems = append(rep.Problems, Problem{Code: "rst_path_escape", Path: e.Path, Detail: err.Error()})
 			return items, fmt.Errorf("%w: %s: %v", ErrCorrupt, e.Path, err)
+		}
+		role, _ := splitRole(rel)
+		if _, ok := landing[role]; !ok {
+			root, mapped, rerr := roleRoot(into, role, mapping)
+			if rerr != nil {
+				rep.Problems = append(rep.Problems, Problem{Code: "rst_path_escape", Path: e.Path, Detail: rerr.Error()})
+				return items, fmt.Errorf("%w: %s: %v", ErrCorrupt, e.Path, rerr)
+			}
+			landing[role] = Landing{Role: role, Path: root, Mapped: mapped}
 		}
 		it := payload{entry: e, rel: e.Path, target: dst, unitID: units[e.Path]}
 		switch e.Type {
@@ -559,6 +587,14 @@ func buildPlan(pkg, into string, sig *pack.SIG, units map[string]string, secrets
 		items = append(items, it)
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].rel < items[j].rel })
+	roles := make([]string, 0, len(landing))
+	for role := range landing {
+		roles = append(roles, role)
+	}
+	sort.Strings(roles)
+	for _, role := range roles {
+		rep.Landing = append(rep.Landing, landing[role])
+	}
 	return items, nil
 }
 
@@ -573,6 +609,84 @@ func payloadRel(p string) (string, bool) {
 		return p, true
 	}
 	return "", false
+}
+
+// splitRole separates payloadRel's leading role segment ("home", "repo",
+// "reinstall", …) from the rest of the package-relative path.
+func splitRole(rel string) (role, rest string) {
+	if i := strings.IndexByte(rel, '/'); i >= 0 {
+		return rel[:i], rel[i+1:]
+	}
+	return rel, ""
+}
+
+// normalizeMap validates --map values once. They must stay under Into: an
+// absolute path, a drive/volume prefix, "~" or any ".." segment is a usage
+// error. "." is allowed and means Into itself.
+func normalizeMap(m map[string]string) (map[string]string, error) {
+	if len(m) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(m))
+	for role, raw := range m {
+		if role == "" {
+			return nil, fmt.Errorf("--map 缺少 ROLE")
+		}
+		if strings.ContainsAny(role, `/\`) || role == "." || role == ".." {
+			return nil, fmt.Errorf("--map %q: ROLE 必须是单个角色名（如 home、repo）", role)
+		}
+		p := strings.TrimSpace(raw)
+		if p == "" {
+			return nil, fmt.Errorf("--map %s 缺少 PATH", role)
+		}
+		if filepath.IsAbs(p) || filepath.VolumeName(p) != "" || strings.HasPrefix(p, "~") {
+			return nil, fmt.Errorf("--map %s=%s: 映射必须是 --into 下的相对路径（不接受绝对路径、盘符或 ~）", role, raw)
+		}
+		clean := filepath.ToSlash(filepath.Clean(p))
+		if clean == "." {
+			out[role] = "."
+			continue
+		}
+		for _, seg := range strings.Split(clean, "/") {
+			if seg == ".." {
+				return nil, fmt.Errorf("--map %s=%s: 映射不能包含 ..（必须留在 --into 之内）", role, raw)
+			}
+		}
+		if err := pack.ValidateRelPath(clean); err != nil {
+			return nil, fmt.Errorf("--map %s=%s: %v", role, raw, err)
+		}
+		out[role] = clean
+	}
+	return out, nil
+}
+
+// roleRoot resolves one role's landing root. Unmapped roles keep the
+// historical Into/<role>; mapped roles land at Into/<map value>.
+func roleRoot(into, role string, mapping map[string]string) (string, bool, error) {
+	if sub, ok := mapping[role]; ok {
+		if sub == "." {
+			return into, true, nil
+		}
+		p, err := pack.SafeJoin(into, sub)
+		return p, true, err
+	}
+	p, err := pack.SafeJoin(into, role)
+	return p, false, err
+}
+
+// mappedTarget is buildPlan's destination: the role's (possibly mapped) root
+// joined with the rest of the package-relative path. With no mapping it is
+// exactly pack.SafeJoin(into, rel), so default restores are unchanged.
+func mappedTarget(into, rel string, mapping map[string]string) (string, error) {
+	role, rest := splitRole(rel)
+	root, _, err := roleRoot(into, role, mapping)
+	if err != nil {
+		return "", err
+	}
+	if rest == "" {
+		return root, nil
+	}
+	return pack.SafeJoin(root, rest)
 }
 
 func actionFor(dst string, it payload) string {

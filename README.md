@@ -33,8 +33,12 @@ packout export --src ./out --out ./pack --with-secrets --passphrase-file ./pw   
 packout sign   ./pack --key ~/.config/packout/minisign.key   # 签名（覆盖 SIG.json + manifest/）
 packout verify ./pack --pubkey ./me.pub   # → ok / tampered / bad-signature / unsigned
 # 恢复与查看：把同一个基线带到新的工作区
-packout restore ./pack --into ~/.claude-home   # 恢复到空目录；未签名默认拒绝
+packout restore ./pack --into ~/.claude-home   # 默认落到 <into>/home、<into>/repo；未签名默认拒绝
 packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计划
+# 新机器怎么落地：--map ROLE=PATH 把角色的落地根改到 <into>/PATH（PATH 相对 --into，"." 即 --into 本身）
+# home 直接进 $HOME，repo 进 $HOME/work/proj2；--into 非空会先列 diff，确认后加 --force
+packout restore ./pack --into $HOME --in-place --map home=. --map repo=work/proj2
+packout restore ./pack --into $HOME --in-place --dry-run --map home=. --map repo=work/proj2   # 先看映射后的落地计划，不写盘
 packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdio）
 ```
 

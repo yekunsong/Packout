@@ -37,6 +37,9 @@ type exportConfig struct {
 	json           bool
 	quiet          bool
 	jobs           int
+	// onResult receives the summary before it is printed. pack uses it to
+	// print one final line instead of export's own.
+	onResult func(exportSummary)
 }
 
 type exportSummary struct {
@@ -160,6 +163,9 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 		out.Added, out.Modified, out.Removed = len(res.Diff.Added), len(res.Diff.Modified), len(res.Diff.Removed)
 	}
 	r.value(out)
+	if cfg.onResult != nil {
+		cfg.onResult(out)
+	}
 	r.info("包已写入 %s：%d 个条目，%d 字节，SIG=%s", res.OutDir, res.Entries, res.TotalBytes, res.SIGPath)
 	for _, w := range res.Warnings {
 		r.warn("packout: 警告：%s", w)

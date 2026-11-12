@@ -61,6 +61,8 @@
 - `report --lan` 才绑 `0.0.0.0`，并在 stderr 打印实际 URL 与警示。
 - `verify` 的结论词原样打印，不做美化。无可用公钥（trusted_keys 缺失/为空/加载失败）且树哈希匹配时是 `bad-signature`，不是 `failed`；树哈希不符仍是 `tampered`（先树后签名，INV-C06）。`hash-ok, unverified` 仅作为历史结论词保留。
 - `restore`/`drill` 门禁只看结论：`tampered` 拒绝且 `--allow-unverified` 不放行；`empty`（空包/不可识别）同样不放行；`unsigned`/`bad-signature`/`failed` 在 `--allow-unverified` 下继续并红字警告，否则错误文案写实际结论与下一步，不得说“tampered”。
+- `restore`/`drill` 的 `--map ROLE=PATH`（可重复）把角色落地根改到 `<into>/PATH`（PATH 相对 `--into`；绝对路径、盘符、`~`、`..` 拒绝）。未映射角色仍落 `<into>/ROLE`；`--into` 仍必填；映射不放松任何门禁，`--dry-run`/`drill` 不写盘。结束时打印解析后的绝对落地摘要。
+- `pack --with-sessions` 是 `--preset full` 的别名；与 `minimal/standard` 同用是用法错误（3），`full` 同值放行。`pack` 成功的人类输出只有一次扫描计数与一行包摘要，不暴露内部临时扫描目录。
 - `scan` 会在输出目录写 `roots.json`（实例名→绝对路径）。它是本机元数据，**不进包**；`export` 靠它免去重敲 `--root`。
 - 所有命令支持 `--json` 输出机器可读摘要；`--quiet` 只留错误。
 

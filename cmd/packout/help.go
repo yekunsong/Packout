@@ -167,8 +167,9 @@ const doctorHelp = `用法: packout doctor [--out DIR] [--json]
 
 const packHelp = `用法: packout pack <目录> [--out DIR] [选择/加密/签名参数]
 
-一条链完成：scan（临时目录）→ export（--out）→ 可选 sign。成功打印包路径与
-verify 命令；任一失败返回该步退出码，已完成产物保留并打印路径。
+一条链完成：scan（临时目录）→ export（--out）→ 可选 sign。成功只打印扫描计数
+与一行包摘要（N 条目/M 字节/是否签名）和 verify 命令；任一失败返回该步退出码，
+已完成产物保留并打印路径。
 
   <目录>           位置参数，等价于 --out <目录>（两种写法不要同时给不同值）
   --out DIR        包目录（必填；位置参数与 --out 只能表示同一个目录）
@@ -178,7 +179,9 @@ verify 命令；任一失败返回该步退出码，已完成产物保留并打�
   --profile NAME   内置 profile 名或文件路径
   --root role=PATH 覆盖根（可重复；缺省用配置或 profile 默认值）
   --preset P       minimal|standard|full
-  --include LIST / --exclude LIST / --sessions-*  同 scan
+  --with-sessions  会话内容一起带走（等价 --preset full；与其它 --preset 冲突）
+  --include LIST / --exclude LIST  同 scan
+  --sessions-since D / --sessions-project S / --sessions-max-per-project N  同 scan
   --with-secrets / --recipient / --passphrase / --passphrase-file  同 export
   --identity FILE  identity 路径
   --sign           导出后签名（--seal 与 --key 也会打开它）
@@ -205,14 +208,16 @@ const statusHelp = `用法: packout status [--json]
 下一步：packout verify <包> 或 packout drill <包> 演练恢复
 `
 
-const drillHelp = `用法: packout drill <包目录> [--into DIR] [--write] [--keep]
+const drillHelp = `用法: packout drill <包目录> [--into DIR] [--map ROLE=PATH]... [--write] [--keep]
 
 在系统临时目录演练一次真实恢复：先干跑打印计划，给 --write 才真正写进临时
 目录；结束时删除临时目录并给出三段报告摘要。任何情况下都不写 --into 指定的
-用户目标目录（它只用于在报告里说明“若正式恢复会到哪里”）。
+用户目标目录（它只用于在报告里说明“若正式恢复会到哪里”）。干跑的目标行会写
+“演练目标（干跑未创建）”，--write 时显示真实目标。
 
   <包目录>         位置参数，要演练的包
   --into DIR       正式恢复时的目标，仅用于报告；drill 永不写它
+  --map ROLE=PATH  演练一次角色映射（可重复；PATH 相对演练目标，不写 --into）
   --write          真写临时目录（默认只干跑、打印计划）
   --keep           保留临时目录并打印路径（默认演练后删除）
   --allow-unverified  SIG 结论不是 ok 时仍继续（tampered 与 empty 除外）
@@ -273,7 +278,7 @@ const exportHelp = `用法: packout export --src DIR --out DIR [--force]
 下一步：packout verify <包>（导出不含签名，要签名用 packout sign <包>）
 `
 
-const restoreHelp = `用法: packout restore PKG_DIR --into DIR [--allow-unverified] [--dry-run]
+const restoreHelp = `用法: packout restore PKG_DIR --into DIR [--map ROLE=PATH]... [--allow-unverified] [--dry-run]
                    [--in-place [--force]] [--pubkey FILE] [--identity FILE | --passphrase]
 
 按固定顺序恢复：验 SIG → 目标门 → 解密 secrets.age → 计划 → 写 → 回读复验。
@@ -281,7 +286,15 @@ const restoreHelp = `用法: packout restore PKG_DIR --into DIR [--allow-unverif
 config/ 中的 «secret:…» 占位符会现场替换为明文；找不到引用记 missing_secret 并继续。
 失败即停，已写文件保留、不回滚；L5 永不写盘，只进 needs_relogin。
 
+落地语义：config/<角色>/… 默认落到 <into>/<角色>/…（home → <into>/home，
+repo → <into>/repo）；结束时打印“落地：…”摘要。<into> 是状态根，不是包副本。
+--map ROLE=PATH 可把某个角色改到 <into>/PATH（可重复；PATH 相对 --into，
+“.” 表示 --into 本身；绝对路径、盘符与 .. 一律拒绝）。未给 --map 的角色不变。
+把基线装进新机器（映射后仍走 --in-place/diff/--force 门禁）：
+  packout restore pack --into $HOME --in-place --map home=. --map repo=work/proj2
+
   --into DIR           目标目录（必填）
+  --map ROLE=PATH      覆盖角色的落地根（可重复；PATH 相对 --into）
   --in-place           允许非空目标；先列 diff
   --force              确认执行 --in-place 列出的覆盖
   --dry-run            只跑前四步，零写入

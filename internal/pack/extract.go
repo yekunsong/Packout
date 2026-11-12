@@ -75,6 +75,9 @@ func extractConfig(m *manifest.Manifest, prof *profile.Profile, roots map[string
 	}
 	var tasks []extractTask
 	written := make(map[string]bool)
+	// One warning per duplicated destination, not one per skipped unit: the
+	// same file indexed twice is one fact worth telling the user.
+	dupes := make(map[string]bool)
 	planned := int64(0)
 	for i := range m.Units {
 		u := &m.Units[i]
@@ -138,7 +141,10 @@ func extractConfig(m *manifest.Manifest, prof *profile.Profile, roots map[string
 			continue
 		}
 		if written[outRel] {
-			warnings = append(warnings, fmt.Sprintf("config: duplicate destination %q (unit %s skipped)", outRel, u.ID))
+			if !dupes[outRel] {
+				dupes[outRel] = true
+				warnings = append(warnings, fmt.Sprintf("config: duplicate destination %q（重复条目的其余副本已跳过）", outRel))
+			}
 			continue
 		}
 		target, err := safeJoin(dest, outRel)

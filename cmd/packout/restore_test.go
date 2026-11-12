@@ -176,3 +176,78 @@ func mustWrite(t *testing.T, path string, data []byte) {
 		t.Fatal(err)
 	}
 }
+
+// TestRestoreMap covers the new-machine flow: --map home=. lands home files
+// directly in --into, a second role can move under a subdirectory, dry-run
+// stays read-only, and unsafe mappings are refused before any write.
+func TestRestoreMap(t *testing.T) {
+	isolateHome(t)
+	pkg, pub := signedPkg(t)
+	base := t.TempDir()
+
+	into := filepath.Join(base, "newhome")
+	code, stdout, stderr := run(t, "restore", pkg, "--into", into, "--map", "home=.", "--pubkey", pub)
+	if code != exitOK {
+		t.Fatalf("restore --map home=.: code=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(into, ".claude", "settings.json")); err != nil {
+		t.Fatalf("home did not land directly in --into: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(into, "home")); !os.IsNotExist(err) {
+		t.Fatalf("home=. still created the home/ mirror: %v", err)
+	}
+	if !strings.Contains(stdout, "落地：home → "+into) {
+		t.Fatalf("landing summary missing resolved path:\n%s", stdout)
+	}
+
+	into2 := filepath.Join(base, "mapped")
+	code, stdout, stderr = run(t, "restore", pkg, "--into", into2,
+		"--map", "home=work/home", "--map", "repo=work/proj2", "--pubkey", pub)
+	if code != exitOK {
+		t.Fatalf("restore two maps: code=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(into2, "work", "home", ".claude", "settings.json")); err != nil {
+		t.Fatalf("mapped home missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(into2, "work", "proj2", ".mcp.json")); err != nil {
+		t.Fatalf("mapped repo missing: %v", err)
+	}
+	if !strings.Contains(stdout, "work"+string(os.PathSeparator)+"proj2") &&
+		!strings.Contains(stdout, "work/proj2") {
+		t.Fatalf("landing summary does not name the repo mapping:\n%s", stdout)
+	}
+
+	dry := filepath.Join(base, "dry")
+	code, _, stderr = run(t, "restore", pkg, "--into", dry, "--dry-run", "--map", "home=.", "--pubkey", pub)
+	if code != exitOK {
+		t.Fatalf("restore --dry-run --map: code=%d stderr=%q", code, stderr)
+	}
+	if _, err := os.Stat(dry); !os.IsNotExist(err) {
+		t.Fatalf("dry run with --map created the target: %v", err)
+	}
+
+	for _, m := range []string{"home=/abs/path", "home=../escape", "home=a/../../escape", "home="} {
+		out := filepath.Join(base, "bad")
+		code, _, stderr := run(t, "restore", pkg, "--into", out, "--map", m, "--pubkey", pub)
+		if code != exitUsage {
+			t.Fatalf("--map %q: code=%d, want %d (stderr %q)", m, code, exitUsage, stderr)
+		}
+		if !strings.Contains(stderr, "--map") {
+			t.Fatalf("--map %q: error does not mention --map: %q", m, stderr)
+		}
+		if _, err := os.Stat(out); !os.IsNotExist(err) {
+			t.Fatalf("--map %q wrote the target", m)
+		}
+	}
+
+	code, _, stderr = run(t, "restore", pkg, "--into", filepath.Join(base, "dup"),
+		"--map", "home=a", "--map", "home=b", "--pubkey", pub)
+	if code != exitUsage || !strings.Contains(stderr, "重复映射") {
+		t.Fatalf("duplicate --map: code=%d stderr=%q", code, stderr)
+	}
+
+	// --into stays mandatory even with a mapping.
+	if code, _, _ := run(t, "restore", pkg, "--map", "home=."); code != exitUsage {
+		t.Fatalf("--map without --into: code=%d, want %d", code, exitUsage)
+	}
+}

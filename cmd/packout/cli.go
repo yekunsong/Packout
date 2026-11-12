@@ -127,6 +127,45 @@ func (r *rootList) Set(v string) error {
 	return nil
 }
 
+// mapList collects repeated --map ROLE=PATH values (restore/drill). PATH is
+// resolved by internal/restore against --into; the CLI only keeps ROLE=PATH.
+type mapList []rootFlag
+
+func (m *mapList) String() string { return "" }
+
+func (m *mapList) Set(v string) error {
+	i := strings.IndexByte(v, '=')
+	if i <= 0 {
+		return fmt.Errorf("--map 需要 ROLE=PATH，收到 %q", v)
+	}
+	role, path := v[:i], v[i+1:]
+	if role == "" {
+		return fmt.Errorf("--map 缺少 ROLE：%q", v)
+	}
+	if path == "" {
+		return fmt.Errorf("--map 缺少 PATH：%q", v)
+	}
+	for _, b := range *m {
+		if b.role == role {
+			return fmt.Errorf("--map 重复映射 role %q（每个角色只能映射一次）", role)
+		}
+	}
+	*m = append(*m, rootFlag{role: role, path: path, raw: v})
+	return nil
+}
+
+// values turns the flag list into the map internal/restore expects.
+func (m mapList) values() map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for _, b := range m {
+		out[b.role] = b.path
+	}
+	return out
+}
+
 // stringList collects repeated plain string flags (e.g. --recipient).
 type stringList []string
 

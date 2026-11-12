@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"strings"
 
 	"packout/internal/pack"
 	"packout/internal/restore"
@@ -13,6 +15,7 @@ type restoreConfig struct {
 	noState         bool
 	pkg             string
 	into            string
+	maps            mapList
 	inPlace         bool
 	force           bool
 	dryRun          bool
@@ -70,6 +73,7 @@ func runRestore(ctx context.Context, cfg restoreConfig, stdout, stderr io.Writer
 	opt := restore.Options{
 		PackageDir:      cfg.pkg,
 		Into:            cfg.into,
+		Map:             cfg.maps.values(),
 		InPlace:         cfg.inPlace,
 		Force:           cfg.force,
 		DryRun:          cfg.dryRun,
@@ -87,7 +91,7 @@ func runRestore(ctx context.Context, cfg restoreConfig, stdout, stderr io.Writer
 	rep, err := restore.Run(ctx, opt)
 	if ctx.Err() != nil {
 		if rep != nil {
-			printRestoreReport(r, rep)
+			printRestoreReport(r, rep, "目标")
 		}
 		return exitFromCtx(r, ctx)
 	}
@@ -102,10 +106,13 @@ func runRestore(ctx context.Context, cfg restoreConfig, stdout, stderr io.Writer
 		} else {
 			r.value(rep)
 		}
-		printRestoreReport(r, rep)
+		printRestoreReport(r, rep, "目标")
 	}
 	if err != nil {
 		return r.fail(restoreExit(err), "%s", withNext(err.Error(), restoreNext(err, cfg)))
+	}
+	if rep != nil {
+		printLanding(r, rep)
 	}
 	if !cfg.dryRun && !cfg.noState && rep != nil {
 		recordRestore(r.warn, cfg.pkg, cfg.into, len(rep.Restored))
@@ -144,7 +151,7 @@ func restoreExit(err error) int {
 	}
 }
 
-func printRestoreReport(r *reporter, rep *restore.Report) {
+func printRestoreReport(r *reporter, rep *restore.Report, targetLabel string) {
 	if rep == nil || r.quiet || r.json {
 		return
 	}
@@ -152,8 +159,11 @@ func printRestoreReport(r *reporter, rep *restore.Report) {
 	if rep.Signed {
 		signed = "已签名"
 	}
+	if targetLabel == "" {
+		targetLabel = "目标"
+	}
 	r.info("SIG 结论: %s（%s）", rep.SigConclusion, signed)
-	r.info("目标: %s", rep.Target)
+	r.info("%s: %s", targetLabel, rep.Target)
 	if rep.DryRun {
 		r.info("干跑：只跑前四步，未写入任何文件")
 	}
@@ -188,4 +198,17 @@ func printRestoreReport(r *reporter, rep *restore.Report) {
 	for _, w := range rep.Warnings {
 		r.warn("packout: 警告：%s", w)
 	}
+}
+
+// printLanding names where each role actually landed (absolute paths, after
+// applying --map), so a user on a new machine knows what to copy where.
+func printLanding(r *reporter, rep *restore.Report) {
+	if rep == nil || r.quiet || r.json || len(rep.Landing) == 0 {
+		return
+	}
+	parts := make([]string, 0, len(rep.Landing))
+	for _, l := range rep.Landing {
+		parts = append(parts, fmt.Sprintf("%s → %s", l.Role, l.Path))
+	}
+	r.info("落地：%s（把需要的子目录复制到目标机器对应根，或见 --map）", strings.Join(parts, "，"))
 }

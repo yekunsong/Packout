@@ -76,8 +76,8 @@ func completionFlagList() string { return strings.Join(completionFlags, " ") }
 // superset: completing a flag a command does not take is rejected by that
 // command's own parser, never silently accepted.
 var completionFlags = []string{
-	"--out", "--src", "--into", "--manifest", "--profile", "--root", "--preset",
-	"--include", "--exclude", "--sessions-since", "--sessions-project",
+	"--out", "--src", "--into", "--map", "--manifest", "--profile", "--root", "--preset",
+	"--with-sessions", "--include", "--exclude", "--sessions-since", "--sessions-project",
 	"--sessions-max-per-project", "--force", "--with-secrets", "--recipient",
 	"--passphrase", "--passphrase-file", "--identity", "--key", "--sign", "--seal",
 	"--pubkey", "--in-place", "--dry-run", "--allow-unverified", "--write",

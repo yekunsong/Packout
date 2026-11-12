@@ -20,6 +20,7 @@ import (
 type drillConfig struct {
 	pkg             string
 	into            string
+	maps            mapList
 	write           bool
 	keep            bool
 	allowUnverified bool
@@ -60,6 +61,7 @@ func parseDrill(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	fs := flag.NewFlagSet("drill", flag.ContinueOnError)
 	var cfg drillConfig
 	fs.StringVar(&cfg.into, "into", "", "正式恢复时的目标目录（仅用于报告，drill 不写它）")
+	fs.Var(&cfg.maps, "map", "ROLE=PATH，演练 --map 的落地计划（可重复；PATH 相对演练目标）")
 	fs.BoolVar(&cfg.write, "write", false, "真写系统临时目录（默认只干跑并打印计划）")
 	fs.BoolVar(&cfg.keep, "keep", false, "保留临时目录并打印路径")
 	fs.BoolVar(&cfg.allowUnverified, "allow-unverified", false, "SIG 结论不是 ok 时仍继续（tampered 与 empty 除外）")
@@ -136,10 +138,17 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 		}
 	}()
 	target := filepath.Join(tmp, "restore")
+	// A dry run creates no temp dir, so its target line must say so; --write
+	// shows the real target.
+	targetLabel := "演练目标（干跑未创建）"
+	if created {
+		targetLabel = "演练目标"
+	}
 
 	opt := restore.Options{
 		PackageDir:      cfg.pkg,
 		Into:            target,
+		Map:             cfg.maps.values(),
 		DryRun:          true,
 		AllowUnverified: cfg.allowUnverified,
 		PubKeyPath:      cfg.pubkey,
@@ -160,12 +169,12 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 	rep, err := restore.Run(ctx, opt)
 	if ctx.Err() != nil {
 		if rep != nil {
-			printRestoreReport(r, rep)
+			printRestoreReport(r, rep, targetLabel)
 		}
 		return exitFromCtx(r, ctx)
 	}
 	if rep != nil {
-		printRestoreReport(r, rep)
+		printRestoreReport(r, rep, targetLabel)
 		if rep.AllowedUnverified {
 			r.warn("\x1b[31mpackout: 警告：SIG 结论 %q —— 来源未确认，已按 --allow-unverified 继续；可用 --pubkey 核对来源\x1b[0m",
 				rep.SigConclusion)
@@ -194,12 +203,12 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 		rep, err = restore.Run(ctx, opt)
 		if ctx.Err() != nil {
 			if rep != nil {
-				printRestoreReport(r, rep)
+				printRestoreReport(r, rep, targetLabel)
 			}
 			return exitFromCtx(r, ctx)
 		}
 		if rep != nil {
-			printRestoreReport(r, rep)
+			printRestoreReport(r, rep, targetLabel)
 			if rep.AllowedUnverified {
 				r.warn("\x1b[31mpackout: 警告：SIG 结论 %q —— 来源未确认，已按 --allow-unverified 继续；可用 --pubkey 核对来源\x1b[0m",
 					rep.SigConclusion)
@@ -246,6 +255,7 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 		if !cfg.write {
 			r.info("正式执行：packout restore %s --into <目标目录>", cfg.pkg)
 		}
+		printLanding(r, rep)
 	}
 	return exitOK
 }

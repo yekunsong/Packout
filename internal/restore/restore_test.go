@@ -494,3 +494,99 @@ func TestFlattenWritesRegularFile(t *testing.T) {
 		t.Fatalf("content = %q", data)
 	}
 }
+
+// TestMapRelocatesRole covers --map: the mapped role leaves its default
+// <into>/ROLE root, unmapped roles (and dirs) keep the historical layout, and
+// the report names the resolved absolute roots.
+func TestMapRelocatesRole(t *testing.T) {
+	pkg, _, pub := buildPackage(t, false)
+	into := filepath.Join(t.TempDir(), "target")
+	opt := optInto(pkg, into)
+	opt.PubKeyPath = pub
+	opt.Map = map[string]string{"home": "newhome"}
+	rep, err := Run(context.Background(), opt)
+	must(t, err)
+
+	if _, err := os.Stat(filepath.Join(into, "newhome", "settings.json")); err != nil {
+		t.Fatalf("mapped home did not land: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(into, "home")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("mapped home still used the default root: %v", err)
+	}
+	got := map[string]Landing{}
+	for _, l := range rep.Landing {
+		got[l.Role] = l
+	}
+	if l := got["home"]; l.Path != filepath.Join(into, "newhome") || !l.Mapped {
+		t.Fatalf("home landing = %+v, want %s (mapped)", l, filepath.Join(into, "newhome"))
+	}
+	for _, p := range rep.Plan {
+		if p.Path == "home/settings.json" && p.Target != filepath.Join(into, "newhome", "settings.json") {
+			t.Fatalf("plan target = %q, want mapped path", p.Target)
+		}
+	}
+}
+
+// TestMapDotLandsInInto is the new-machine case: home files go directly into
+// --into with no extra home/ level.
+func TestMapDotLandsInInto(t *testing.T) {
+	pkg, _, pub := buildPackage(t, false)
+	into := filepath.Join(t.TempDir(), "target")
+	opt := optInto(pkg, into)
+	opt.PubKeyPath = pub
+	opt.Map = map[string]string{"home": "."}
+	rep, err := Run(context.Background(), opt)
+	must(t, err)
+	if len(rep.Landing) != 1 || rep.Landing[0].Path != into {
+		t.Fatalf("landing = %+v, want home -> %s", rep.Landing, into)
+	}
+	if _, err := os.Stat(filepath.Join(into, "settings.json")); err != nil {
+		t.Fatalf("home=. did not land directly in --into: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(into, "home")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("home=. still created the home/ mirror: %v", err)
+	}
+}
+
+// TestMapDryRunWritesNothing keeps --dry-run read-only even when mapped.
+func TestMapDryRunWritesNothing(t *testing.T) {
+	pkg, _, pub := buildPackage(t, false)
+	into := filepath.Join(t.TempDir(), "target")
+	opt := optInto(pkg, into)
+	opt.PubKeyPath = pub
+	opt.DryRun = true
+	opt.Map = map[string]string{"home": "newhome"}
+	rep, err := Run(context.Background(), opt)
+	must(t, err)
+	if !rep.DryRun {
+		t.Fatal("report lost dry_run")
+	}
+	if _, err := os.Stat(into); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dry run wrote the target: %v", err)
+	}
+}
+
+// TestMapRejectsUnsafePaths pins the mapping boundary: everything must stay
+// inside --into.
+func TestMapRejectsUnsafePaths(t *testing.T) {
+	pkg, _, pub := buildPackage(t, false)
+	cases := []map[string]string{
+		{"home": "/abs/path"},
+		{"home": "../escape"},
+		{"home": "a/../../escape"},
+		{"home": "~/home"},
+	}
+	for _, m := range cases {
+		into := filepath.Join(t.TempDir(), "target")
+		opt := optInto(pkg, into)
+		opt.PubKeyPath = pub
+		opt.Map = m
+		_, err := Run(context.Background(), opt)
+		if !errors.Is(err, ErrUsage) {
+			t.Fatalf("map %v: err = %v, want ErrUsage", m, err)
+		}
+		if _, statErr := os.Stat(into); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("map %v wrote the target", m)
+		}
+	}
+}

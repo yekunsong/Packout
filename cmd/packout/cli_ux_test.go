@@ -712,3 +712,149 @@ func TestErrorsCarryNextStep(t *testing.T) {
 	}
 	_ = cfgDir
 }
+
+// TestPackWithSessions pins the flag users type: it equals --preset full, is
+// accepted with the same explicit preset, and contradicts any other preset.
+func TestPackWithSessions(t *testing.T) {
+	isolateConfig(t)
+	inst := fixtureTree(t)
+	work := t.TempDir()
+
+	pkg := filepath.Join(work, "pkg")
+	if code, _, stderr := run(t, append([]string{"pack", pkg, "--with-sessions", "--quiet"}, rootArgs(inst)...)...); code != exitOK {
+		t.Fatalf("pack --with-sessions: code=%d stderr=%q", code, stderr)
+	}
+	session := filepath.Join(pkg, "config", "home", ".claude", "projects", "D--demo", "session-1.jsonl")
+	if _, err := os.Stat(session); err != nil {
+		t.Fatalf("--with-sessions did not carry the transcript: %v", err)
+	}
+
+	if code, _, stderr := run(t, append([]string{"pack", filepath.Join(work, "full"), "--with-sessions", "--preset", "full", "--quiet"}, rootArgs(inst)...)...); code != exitOK {
+		t.Fatalf("--with-sessions with --preset full must be accepted: code=%d stderr=%q", code, stderr)
+	}
+
+	bad := filepath.Join(work, "bad")
+	code, _, stderr := run(t, append([]string{"pack", bad, "--with-sessions", "--preset", "standard"}, rootArgs(inst)...)...)
+	if code != exitUsage {
+		t.Fatalf("--with-sessions --preset standard: code=%d, want %d (stderr %q)", code, exitUsage, stderr)
+	}
+	for _, want := range []string{"--with-sessions", "--preset full"} {
+		if !strings.Contains(stderr, want) {
+			t.Fatalf("conflict error lacks %q: %q", want, stderr)
+		}
+	}
+	if _, err := os.Stat(bad); !os.IsNotExist(err) {
+		t.Fatal("preset conflict wrote a package")
+	}
+}
+
+// TestPackSingleSummary pins the one-line success output: no internal temp
+// scan dir, no duplicate "包已写入", and duplicate-destination warnings are
+// deduped by target and no longer name internal unit ids.
+func TestPackSingleSummary(t *testing.T) {
+	isolateConfig(t)
+	inst := fixtureTree(t)
+	pkg := filepath.Join(t.TempDir(), "pkg")
+
+	code, stdout, stderr := run(t, append([]string{"pack", pkg}, rootArgs(inst)...)...)
+	if code != exitOK {
+		t.Fatalf("pack: code=%d stderr=%q", code, stderr)
+	}
+	if n := strings.Count(stdout, "包已写入"); n != 1 {
+		t.Fatalf("pack printed %d package lines, want 1:\n%s", n, stdout)
+	}
+	if strings.Contains(stdout, ".packout-pack-") || strings.Contains(stdout, "清单已写入") {
+		t.Fatalf("pack leaked its internal scan step:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "已扫描 ") || !strings.Contains(stdout, "（残留 ") {
+		t.Fatalf("scan counts missing from pack output:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "未签名）") && !strings.Contains(stdout, "已签名）") {
+		t.Fatalf("package line lacks entry/byte/signature summary:\n%s", stdout)
+	}
+	lines := 0
+	for _, line := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines++
+		}
+	}
+	if lines > 5 {
+		t.Fatalf("pack success printed %d lines, want a short summary:\n%s", lines, stdout)
+	}
+
+	seen := map[string]bool{}
+	for _, line := range strings.Split(stderr, "\n") {
+		if !strings.Contains(line, "duplicate destination") {
+			continue
+		}
+		if strings.Contains(line, "unit ") {
+			t.Fatalf("duplicate warning exposes a unit id: %q", line)
+		}
+		if seen[line] {
+			t.Fatalf("duplicate warning repeated: %q", line)
+		}
+		seen[line] = true
+	}
+}
+
+// TestPackVerifyHintAfterInit checks that init's trust store makes the default
+// verify hint sufficient; an explicit --key keeps the --pubkey hint.
+func TestPackVerifyHintAfterInit(t *testing.T) {
+	isolateConfig(t)
+	old := initStdin
+	initStdin = strings.NewReader("")
+	defer func() { initStdin = old }()
+	if code, _, stderr := run(t, "init", "--yes", "--quiet"); code != exitOK {
+		t.Fatalf("init: code=%d stderr=%q", code, stderr)
+	}
+	inst := fixtureTree(t)
+	pkg := filepath.Join(t.TempDir(), "pkg")
+	code, stdout, stderr := run(t, append([]string{"pack", pkg, "--seal"}, rootArgs(inst)...)...)
+	if code != exitOK {
+		t.Fatalf("pack --seal: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "校验：packout verify "+pkg+"\n") {
+		t.Fatalf("default-key hint still asks for --pubkey:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "校验：packout verify "+pkg+" --pubkey") {
+		t.Fatalf("default-key hint still asks for --pubkey:\n%s", stdout)
+	}
+
+	priv, _ := newKey(t)
+	pkg2 := filepath.Join(t.TempDir(), "pkg2")
+	code, stdout, stderr = run(t, append([]string{"pack", pkg2, "--seal", "--key", priv}, rootArgs(inst)...)...)
+	if code != exitOK {
+		t.Fatalf("pack --seal --key: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "--pubkey") {
+		t.Fatalf("explicit --key hint should name --pubkey:\n%s", stdout)
+	}
+}
+
+// TestDrillTargetLineLabels pins the wording: a dry run says the target was
+// not created; --write shows the real target.
+func TestDrillTargetLineLabels(t *testing.T) {
+	isolateConfig(t)
+	inst := fixtureTree(t)
+	priv, pub := newKey(t)
+	pkg := filepath.Join(t.TempDir(), "pkg")
+	if code, _, stderr := packPackage(t, inst, pkg, "--seal", "--key", priv); code != exitOK {
+		t.Fatalf("pack: code=%d stderr=%q", code, stderr)
+	}
+
+	code, stdout, stderr := run(t, "drill", pkg, "--into", t.TempDir(), "--pubkey", pub)
+	if code != exitOK {
+		t.Fatalf("drill dry: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "演练目标（干跑未创建）: ") {
+		t.Fatalf("dry-run target line not labelled:\n%s", stdout)
+	}
+
+	code, stdout, stderr = run(t, "drill", pkg, "--into", t.TempDir(), "--write", "--pubkey", pub)
+	if code != exitOK {
+		t.Fatalf("drill --write: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "演练目标: ") || strings.Contains(stdout, "干跑未创建）: ") {
+		t.Fatalf("--write does not show the real target:\n%s", stdout)
+	}
+}

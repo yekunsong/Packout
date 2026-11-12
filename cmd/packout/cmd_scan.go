@@ -33,6 +33,9 @@ type scanConfig struct {
 	jobs           int
 	json           bool
 	quiet          bool
+	// onResult receives the summary right before it is printed. pack uses it
+	// to fold the counts into its own single summary line.
+	onResult func(scanSummary)
 }
 
 type scanSummary struct {
@@ -143,7 +146,7 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 	}
 	keep = true
 
-	r.value(scanSummary{
+	sum := scanSummary{
 		Out:        cfg.out,
 		Units:      res.Units,
 		Residual:   res.Residual,
@@ -151,7 +154,11 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 		Notes:      res.Notes,
 		Shards:     res.Shards,
 		Complete:   res.Complete,
-	})
+	}
+	r.value(sum)
+	if cfg.onResult != nil {
+		cfg.onResult(sum)
+	}
 	r.info("清单已写入 %s：%d 个 Unit（残留 %d，读取错误 %d，分片 %d）",
 		cfg.out, res.Units, res.Residual, res.ReadErrors, res.Shards)
 	if res.ReadErrors > 0 {
