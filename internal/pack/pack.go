@@ -764,17 +764,20 @@ func VerifyWithOptions(dir string, opt VerifyOptions) (*Verdict, error) {
 // and manifest were already checked, so a failure here is attribution, not
 // content.
 func verifySignature(abs string, v *Verdict, opt VerifyOptions) (*Verdict, error) {
+	trustedPath := effectiveTrustedKeysPath(opt)
 	keys, err := publicKeys(opt)
 	if err != nil {
-		v.Conclusion = ConclusionFailed
+		// No usable key source is an attribution problem (bad-signature), not
+		// a content problem: the tree and manifest already matched above.
+		v.Conclusion = ConclusionBadSignature
 		v.Problems = append(v.Problems, Problem{Code: "pubkey-invalid", Detail: err.Error()})
 		return v, err
 	}
 	if len(keys) == 0 {
-		v.Conclusion = ConclusionHashOKUnverified
+		v.Conclusion = ConclusionBadSignature
 		v.Problems = append(v.Problems, Problem{
 			Code:   "no-pubkey",
-			Detail: "签名存在但无公钥；用 --pubkey FILE，或把公钥写入 " + DefaultTrustedKeysPath(),
+			Detail: "签名存在，但没有可用公钥；用 --pubkey FILE 确认来源，或把这些公钥写入 " + trustedPath + "（packout init 会写入本机公钥）",
 		})
 		return v, nil
 	}
@@ -793,18 +796,11 @@ func verifySignature(abs string, v *Verdict, opt VerifyOptions) (*Verdict, error
 	msg := []byte(signatureDomain + coverage)
 
 	var trusted []minisign.PublicKey
-	trustedPath := opt.TrustedKeysPath
-	if trustedPath == "" {
-		trustedPath = DefaultTrustedKeysPath()
-	}
+	// The trusted-keys file here only answers "is this --pubkey already
+	// known?" (TOFU). It is deliberately not merged into --pubkey (D-044 #4),
+	// and a broken trusted store must not block an explicit --pubkey.
 	if trustedPath != "" {
-		if trusted, err = LoadPublicKeys(trustedPath); err != nil {
-			if !errors.Is(err, fs.ErrNotExist) {
-				v.Conclusion = ConclusionFailed
-				v.Problems = append(v.Problems, Problem{Code: "pubkey-invalid", Detail: err.Error()})
-				return v, err
-			}
-		}
+		trusted, _ = LoadPublicKeys(trustedPath)
 	}
 	for i := range keys {
 		if !minisign.Verify(keys[i], msg, sig) {
@@ -835,27 +831,53 @@ func containsKey(keys []minisign.PublicKey, want *minisign.PublicKey) bool {
 	return false
 }
 
+// effectiveTrustedKeysPath is the trust store used for first-seen reporting and
+// for the no-pubkey hint.
+func effectiveTrustedKeysPath(opt VerifyOptions) string {
+	if opt.TrustedKeysPath != "" {
+		return opt.TrustedKeysPath
+	}
+	return DefaultTrustedKeysPath()
+}
+
 // publicKeys resolves the key source. --pubkey wins; otherwise the trusted
-// keys file is used when present. A missing trusted-keys file is not an error.
+// keys file is used when present. A missing or blank trusted-keys file is not
+// an error: it simply yields no keys.
 func publicKeys(opt VerifyOptions) ([]minisign.PublicKey, error) {
 	if opt.PubKeyPath != "" {
+		// An explicit --pubkey that cannot be read is a path/usage problem, not
+		// "no key configured": report it so the next-step hint can say so.
 		return LoadPublicKeys(opt.PubKeyPath)
 	}
-	path := opt.TrustedKeysPath
-	if path == "" {
-		path = DefaultTrustedKeysPath()
-	}
+	path := effectiveTrustedKeysPath(opt)
 	if path == "" {
 		return nil, nil
 	}
 	keys, err := LoadPublicKeys(path)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		if errors.Is(err, fs.ErrNotExist) || (errors.Is(err, ErrInvalidPubKey) && blankKeysFile(path)) {
 			return nil, nil
 		}
 		return nil, err
 	}
 	return keys, nil
+}
+
+// blankKeysFile reports whether path holds no key lines (only blank lines and
+// comments). A blank trusted-keys file means "no keys yet", not "broken file".
+func blankKeysFile(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "untrusted comment:") {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // checkManifest validates manifest/ and records failures on v. It returns

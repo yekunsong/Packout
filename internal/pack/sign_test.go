@@ -163,14 +163,16 @@ func TestUnsignedConclusion(t *testing.T) {
 	}
 }
 
-func TestNoPublicKeyIsUnverified(t *testing.T) {
+func TestNoPublicKeyIsBadSignature(t *testing.T) {
 	pkg, _, _ := signedFixture(t)
 	v, err := verifyWith(pkg, VerifyOptions{TrustedKeysPath: noTrusted(t)})
 	if err != nil {
 		t.Fatalf("verify: %v", err)
 	}
-	if v.Conclusion != ConclusionHashOKUnverified {
-		t.Fatalf("conclusion = %q", v.Conclusion)
+	// No usable key is an attribution failure; the tree matched, so this is
+	// bad-signature, never failed (and never tampered).
+	if v.Conclusion != ConclusionBadSignature {
+		t.Fatalf("conclusion = %q, want %q", v.Conclusion, ConclusionBadSignature)
 	}
 	found := false
 	for _, p := range v.Problems {
@@ -234,8 +236,8 @@ func TestMalformedPublicKeyFile(t *testing.T) {
 	if !errors.Is(err, ErrInvalidPubKey) {
 		t.Fatalf("want ErrInvalidPubKey, got %v", err)
 	}
-	if v.Conclusion != ConclusionFailed {
-		t.Fatalf("conclusion = %q", v.Conclusion)
+	if v.Conclusion != ConclusionBadSignature {
+		t.Fatalf("conclusion = %q, want %q", v.Conclusion, ConclusionBadSignature)
 	}
 	if !strings.Contains(v.Problems[0].Detail, ":2:") {
 		t.Fatalf("line number missing: %+v", v.Problems)
@@ -335,5 +337,53 @@ func flipByte(t *testing.T, path string) {
 	data[0] ^= 0xff
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBlankTrustedKeysIsBadSignature(t *testing.T) {
+	pkg, _, _ := signedFixture(t)
+	blank := filepath.Join(t.TempDir(), "trusted_keys")
+	if err := os.WriteFile(blank, []byte("# no keys yet\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	v, err := verifyWith(pkg, VerifyOptions{TrustedKeysPath: blank})
+	if err != nil {
+		t.Fatalf("verify: %v", err)
+	}
+	if v.Conclusion != ConclusionBadSignature {
+		t.Fatalf("conclusion = %q, want %q", v.Conclusion, ConclusionBadSignature)
+	}
+}
+
+func TestTamperedWinsOverMissingKey(t *testing.T) {
+	// Conclusion order is INV-C06: content first, attribution second. A
+	// missing key must not downgrade a real content mismatch to bad-signature.
+	pkg, _, _ := signedFixture(t)
+	flipByte(t, filepath.Join(pkg, firstManifestFile(t, pkg)))
+	v, err := verifyWith(pkg, VerifyOptions{TrustedKeysPath: noTrusted(t)})
+	if !errors.Is(err, ErrTampered) || v.Conclusion != ConclusionTampered {
+		t.Fatalf("v=%+v err=%v", v, err)
+	}
+}
+
+func TestBrokenTrustedKeysDoesNotBlockPubkey(t *testing.T) {
+	// --pubkey is the sole verification source (D-044 #4); a corrupt trust
+	// store only means "unknown to the store" for the TOFU read-out.
+	pkg, _, pub := signedFixture(t)
+	bad := filepath.Join(t.TempDir(), "trusted_keys")
+	if err := os.WriteFile(bad, []byte("not-a-key\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var firstSeen *bool
+	v, err := verifyWith(pkg, VerifyOptions{
+		PubKeyPath:      pub,
+		TrustedKeysPath: bad,
+		OnKeySeen:       func(_ string, fs bool) { firstSeen = &fs },
+	})
+	if err != nil || v.Conclusion != ConclusionOK {
+		t.Fatalf("v=%+v err=%v", v, err)
+	}
+	if firstSeen == nil || !*firstSeen {
+		t.Fatalf("unreadable store must count as first-seen: %v", firstSeen)
 	}
 }

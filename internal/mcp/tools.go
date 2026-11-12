@@ -711,7 +711,10 @@ func (s *Server) toolVerify(_ context.Context, raw json.RawMessage) (any, *toolE
 	if _, err := fsx.Lstat(s.pkg); err != nil {
 		return nil, &toolError{Code: "package_missing", Message: "包目录不可读", Detail: err.Error(), Source: s.pkg}
 	}
-	v, verr := pack.VerifyWithOptions(s.pkg, pack.VerifyOptions{PubKeyPath: s.pubkey})
+	v, verr := pack.VerifyWithOptions(s.pkg, pack.VerifyOptions{
+		PubKeyPath:      s.pubkey,
+		TrustedKeysPath: s.trustedKeys,
+	})
 	if v == nil {
 		detail := ""
 		if verr != nil {
@@ -788,6 +791,7 @@ func (s *Server) toolRestorePlan(ctx context.Context, raw json.RawMessage) (any,
 		DryRun:          true,
 		AllowUnverified: true,
 		PubKeyPath:      s.pubkey,
+		TrustedKeysPath: s.trustedKeys,
 		Crypt:           pack.CryptOptions{IdentityPath: s.identity},
 	})
 	if rep == nil {

@@ -33,6 +33,10 @@ func isolateHome(t *testing.T) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	// Also isolate the platform config dir: verify/init resolve trusted_keys
+	// through os.UserConfigDir, not ~/.config directly.
+	t.Setenv("XDG_CONFIG_HOME", home)
+	t.Setenv("AppData", home)
 	return home
 }
 
@@ -75,8 +79,11 @@ func TestSignThenVerifyOK(t *testing.T) {
 	}
 
 	// The same key recorded in trusted_keys verifies without --pubkey.
-	home, _ := os.UserHomeDir()
-	trusted := filepath.Join(home, ".config", "packout", "trusted_keys")
+	cfgDir, err := configDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	trusted := filepath.Join(cfgDir, "trusted_keys")
 	if err := os.MkdirAll(filepath.Dir(trusted), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +160,7 @@ func TestVerifyConclusionExitCodes(t *testing.T) {
 	}
 }
 
-func TestVerifyWithoutKeyIsUnverified(t *testing.T) {
+func TestVerifyWithoutKeyIsBadSignature(t *testing.T) {
 	isolateHome(t)
 	pkg := exportPkg(t)
 	priv, _ := newKey(t)
@@ -161,14 +168,55 @@ func TestVerifyWithoutKeyIsUnverified(t *testing.T) {
 		t.Fatalf("sign: %d %q", code, stderr)
 	}
 	code, stdout, stderr := run(t, "verify", pkg)
-	if code != exitOK {
-		t.Fatalf("verify: code=%d", code)
+	if code != exitPartial {
+		t.Fatalf("verify without key: code=%d, want %d", code, exitPartial)
 	}
-	if strings.TrimSpace(stdout) != pack.ConclusionHashOKUnverified {
-		t.Fatalf("conclusion = %q", strings.TrimSpace(stdout))
+	if strings.TrimSpace(stdout) != pack.ConclusionBadSignature {
+		t.Fatalf("conclusion = %q, want %q", strings.TrimSpace(stdout), pack.ConclusionBadSignature)
 	}
-	if !strings.Contains(stderr, "--pubkey") {
-		t.Fatalf("no --pubkey hint: %q", stderr)
+	if !strings.Contains(stderr, "--pubkey") || !strings.Contains(stderr, "trusted_keys") {
+		t.Fatalf("hint does not name the key sources: %q", stderr)
+	}
+}
+
+func TestExplicitPubkeyBeatsBrokenTrustedKeys(t *testing.T) {
+	isolateHome(t)
+	pkg := exportPkg(t)
+	priv, pub := newKey(t)
+	if code, _, stderr := run(t, "sign", pkg, "--key", priv); code != exitOK {
+		t.Fatalf("sign: %d %q", code, stderr)
+	}
+	cfgDir, err := configDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	junk := filepath.Join(cfgDir, "broken_keys")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, junk, []byte("not-a-key\n"))
+	// config's trusted_keys is a trust store, not --pubkey: a broken store
+	// must not turn into a bad key path.
+	writeConfigFile(t, cfgDir, `{"version":1,"trusted_keys":"`+filepath.ToSlash(junk)+`"}`)
+
+	code, stdout, stderr := run(t, "verify", pkg)
+	// A corrupt trust store is bad-signature; because it is also a config
+	// error, verify exits 3 (the conclusion-to-code table is unchanged).
+	if code != exitUsage || strings.TrimSpace(stdout) != pack.ConclusionBadSignature {
+		t.Fatalf("broken store: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "pubkey-invalid") {
+		t.Fatalf("broken store reason missing: %q", stderr)
+	}
+
+	// The explicit key still verifies, and the broken store only affects the
+	// TOFU first-seen read-out.
+	code, stdout, stderr = run(t, "verify", pkg, "--pubkey", pub)
+	if code != exitOK || strings.TrimSpace(stdout) != pack.ConclusionOK {
+		t.Fatalf("explicit pubkey: code=%d stdout=%q stderr=%q", code, stdout, stderr)
+	}
+	if !strings.Contains(stderr, "TOFU") {
+		t.Fatalf("TOFU hint missing: %q", stderr)
 	}
 }
 
@@ -223,7 +271,7 @@ func TestVerifyMalformedPubkeyExitsUsage(t *testing.T) {
 	if !strings.Contains(stderr, ":1:") {
 		t.Errorf("line number missing: %q", stderr)
 	}
-	if strings.TrimSpace(stdout) != pack.ConclusionFailed {
+	if strings.TrimSpace(stdout) != pack.ConclusionBadSignature {
 		t.Fatalf("conclusion = %q", strings.TrimSpace(stdout))
 	}
 }

@@ -79,7 +79,10 @@ type Config struct {
 	Into     string // optional; restore_plan needs it
 	Identity string // optional; age identity for restore_plan's dry run
 	PubKey   string // optional; verify --pubkey
-	Version  string
+	// TrustedKeys is the trust store used when PubKey is empty. Empty means
+	// the pack package default (<home>/.config/packout/trusted_keys).
+	TrustedKeys string
+	Version     string
 }
 
 // Server is one stdio MCP session.
@@ -91,7 +94,9 @@ type Server struct {
 	into     string
 	identity string
 	pubkey   string
-	version  string
+	// trustedKeys is verify's trust store; --pubkey still wins.
+	trustedKeys string
+	version     string
 }
 
 // NewServer validates and absolutizes the startup configuration. Missing
@@ -107,11 +112,12 @@ func NewServer(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("mcp: --out: %w", err)
 	}
 	s := &Server{
-		out:      out,
-		profile:  cfg.Profile,
-		identity: cfg.Identity,
-		pubkey:   cfg.PubKey,
-		version:  cfg.Version,
+		out:         out,
+		profile:     cfg.Profile,
+		identity:    cfg.Identity,
+		pubkey:      cfg.PubKey,
+		trustedKeys: cfg.TrustedKeys,
+		version:     cfg.Version,
 	}
 	for _, r := range cfg.Roots {
 		r.Name = strings.TrimSpace(r.Name)

@@ -31,10 +31,14 @@ type Options struct {
 	InPlace    bool
 	Force      bool
 	DryRun     bool
-	// AllowUnverified lets a non-ok, non-tampered conclusion through.
+	// AllowUnverified lets unsigned / hash-ok, unverified / bad-signature /
+	// failed through. tampered and empty are always refused.
 	AllowUnverified bool
 	// PubKeyPath mirrors verify --pubkey.
 	PubKeyPath string
+	// TrustedKeysPath is verify's trust store (config trusted_keys or the
+	// per-user default). --pubkey still wins inside verify.
+	TrustedKeysPath string
 	// Crypt selects the decryption identity or passphrase.
 	Crypt pack.CryptOptions
 	// OnKeySeen forwards TOFU reporting from verify.
@@ -144,30 +148,41 @@ func Run(ctx context.Context, opt Options) (*Report, error) {
 
 	// Step 1: SIG gate. Nothing is written before this passes.
 	v, verr := pack.VerifyWithOptions(pkg, pack.VerifyOptions{
-		Limits:     opt.Limits,
-		PubKeyPath: opt.PubKeyPath,
-		OnKeySeen:  opt.OnKeySeen,
+		Limits:          opt.Limits,
+		PubKeyPath:      opt.PubKeyPath,
+		TrustedKeysPath: opt.TrustedKeysPath,
+		OnKeySeen:       opt.OnKeySeen,
 	})
 	if ctx.Err() != nil {
 		return rep, ErrCanceled
 	}
 	if v == nil {
+		// No verdict at all (unreadable path, I/O error): report the real
+		// reason, never "tampered".
 		if verr == nil {
 			verr = errors.New("verify 无结论")
 		}
-		return rep, fmt.Errorf("%w: %v", ErrTampered, verr)
+		return rep, fmt.Errorf("%w: 无法校验这个包：%v", ErrUnverified, verr)
 	}
 	rep.SigConclusion = v.Conclusion
 	rep.Signed = v.Signed
 	switch v.Conclusion {
 	case pack.ConclusionOK:
-	case pack.ConclusionHashOKUnverified, pack.ConclusionUnsigned, pack.ConclusionBadSignature:
+	case pack.ConclusionTampered:
+		// Only content that contradicts SIG is tampering; --allow-unverified
+		// never widens this.
+		return rep, fmt.Errorf("%w: SIG 结论 %q（内容与 SIG 不符，--allow-unverified 也不放行）", ErrTampered, v.Conclusion)
+	case pack.ConclusionEmpty:
+		// An empty/unrecognisable package is a usage problem, not something a
+		// user may wave through.
+		return rep, fmt.Errorf("%w: SIG 结论 %q（空包或无法识别的包，--allow-unverified 不放行）", ErrUnverified, v.Conclusion)
+	case pack.ConclusionHashOKUnverified, pack.ConclusionUnsigned, pack.ConclusionBadSignature, pack.ConclusionFailed:
 		if !opt.AllowUnverified {
-			return rep, fmt.Errorf("%w: SIG 结论 %q（需要 ok 或 --allow-unverified）", ErrUnverified, v.Conclusion)
+			return rep, fmt.Errorf("%w: SIG 结论 %q（来源未确认；核对后加 --allow-unverified 继续）", ErrUnverified, v.Conclusion)
 		}
 		rep.AllowedUnverified = true
-	default: // tampered, failed, empty
-		return rep, fmt.Errorf("%w: SIG 结论 %q", ErrTampered, v.Conclusion)
+	default:
+		return rep, fmt.Errorf("%w: SIG 结论 %q（来源未确认；核对后加 --allow-unverified 继续）", ErrUnverified, v.Conclusion)
 	}
 	for _, p := range v.Problems {
 		rep.Warnings = append(rep.Warnings, "verify: "+p.Error())

@@ -9,7 +9,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HOST = os.environ.get("PH", "172.16.10.244")
 USER = os.environ.get("PU", "yekun")
 PASS = os.environ.get("PP", "song2026")
-DEST = "~/packout"
+DEST = os.environ.get("PD", "~/packout")
 
 args = sys.argv[1:]
 do_sync = True

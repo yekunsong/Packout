@@ -58,6 +58,40 @@ func TestRestoreUnsignedGateAndRedWarning(t *testing.T) {
 	}
 }
 
+func TestRestoreNoKeyAllowedWithFlag(t *testing.T) {
+	isolateHome(t)
+	pkg, _ := signedPkg(t)
+	into := filepath.Join(t.TempDir(), "target")
+
+	code, stdout, stderr := run(t, "restore", pkg, "--into", into)
+	if code != exitPartial {
+		t.Fatalf("no-key default: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, pack.ConclusionBadSignature) || !strings.Contains(stderr, pack.ConclusionBadSignature) {
+		t.Fatalf("actual conclusion not reported: stdout=%q stderr=%q", stdout, stderr)
+	}
+	if strings.Contains(stderr, "tampered") || strings.Contains(stderr, "篡改") {
+		t.Fatalf("no-key restore blamed tampering: %q", stderr)
+	}
+	if !strings.Contains(stderr, "--pubkey") && !strings.Contains(stderr, "--allow-unverified") {
+		t.Fatalf("no actionable next step: %q", stderr)
+	}
+	if _, err := os.Stat(into); !os.IsNotExist(err) {
+		t.Fatal("gate must not write")
+	}
+
+	code, _, stderr = run(t, "restore", pkg, "--into", into, "--allow-unverified", "--quiet")
+	if code != exitOK {
+		t.Fatalf("allowed no-key: code=%d stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stderr, "[31m") {
+		t.Errorf("allowed unverified must be red: %q", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(into, "home")); err != nil {
+		t.Fatalf("restore did not write: %v", err)
+	}
+}
+
 func TestRestoreTamperedExitPartial(t *testing.T) {
 	pkg, pub := signedPkg(t)
 	configFile := filepath.Join(pkg, "config", "home", ".claude", "settings.local.json")

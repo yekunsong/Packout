@@ -212,6 +212,79 @@ func TestTamperedRejectedEvenWhenAllowed(t *testing.T) {
 	}
 }
 
+func TestBadSignatureAllowedWithFlag(t *testing.T) {
+	pkg, _, pub := buildPackage(t, false)
+	// A structurally broken .minisig is an attribution failure, not tampering.
+	must(t, os.WriteFile(filepath.Join(pkg, pack.MinisigName),
+		[]byte("untrusted comment: x\n"+strings.Repeat("A", 120)+"\n"), 0o644))
+	into := filepath.Join(t.TempDir(), "target")
+	opt := optInto(pkg, into)
+	opt.PubKeyPath = pub
+
+	rep, err := Run(context.Background(), opt)
+	if !errors.Is(err, ErrUnverified) {
+		t.Fatalf("err = %v, want ErrUnverified", err)
+	}
+	if rep.SigConclusion != pack.ConclusionBadSignature {
+		t.Fatalf("conclusion = %q", rep.SigConclusion)
+	}
+	if strings.Contains(err.Error(), "tampered") {
+		t.Fatalf("bad-signature reported as tampering: %v", err)
+	}
+
+	opt.AllowUnverified = true
+	rep, err = Run(context.Background(), opt)
+	must(t, err)
+	if !rep.AllowedUnverified || rep.SigConclusion != pack.ConclusionBadSignature {
+		t.Fatalf("report = %+v", rep)
+	}
+}
+
+func TestFailedAllowedWithFlag(t *testing.T) {
+	pkg, _, pub := buildPackage(t, false)
+	// Removing manifest/ yields conclusion "failed" at the SIG gate.
+	must(t, os.RemoveAll(filepath.Join(pkg, pack.ManifestDirName)))
+	into := filepath.Join(t.TempDir(), "target")
+	opt := optInto(pkg, into)
+	opt.PubKeyPath = pub
+
+	rep, err := Run(context.Background(), opt)
+	if !errors.Is(err, ErrUnverified) {
+		t.Fatalf("err = %v, want ErrUnverified", err)
+	}
+	if rep.SigConclusion != pack.ConclusionFailed {
+		t.Fatalf("conclusion = %q, want %q", rep.SigConclusion, pack.ConclusionFailed)
+	}
+	if strings.Contains(err.Error(), "tampered") {
+		t.Fatalf("failed reported as tampering: %v", err)
+	}
+
+	// With the flag the gate opens; the missing manifest fails later as
+	// corruption, which proves the gate itself allowed "failed".
+	opt.AllowUnverified = true
+	_, err = Run(context.Background(), opt)
+	if !errors.Is(err, ErrCorrupt) || errors.Is(err, ErrUnverified) {
+		t.Fatalf("gate did not allow failed: %v", err)
+	}
+}
+
+func TestEmptyRefusedEvenWhenAllowed(t *testing.T) {
+	pkg := t.TempDir()
+	into := filepath.Join(t.TempDir(), "target")
+	opt := optInto(pkg, into)
+	opt.AllowUnverified = true
+	rep, err := Run(context.Background(), opt)
+	if err == nil {
+		t.Fatal("empty package accepted")
+	}
+	if errors.Is(err, ErrTampered) {
+		t.Fatalf("empty reported as tampering: %v", err)
+	}
+	if rep == nil || rep.SigConclusion != pack.ConclusionEmpty {
+		t.Fatalf("report = %+v", rep)
+	}
+}
+
 func TestNonEmptyTargetNeedsInPlaceAndForce(t *testing.T) {
 	pkg, _, pub := buildPackage(t, false)
 	into := filepath.Join(t.TempDir(), "target")
@@ -278,14 +351,20 @@ func TestPathTraversalInSIGRejected(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(pkg, pack.SIGName), append(b, '\n'), 0o644))
 
 	into := filepath.Join(t.TempDir(), "target")
-	rep, err := Run(context.Background(), optInto(pkg, into))
-	if !errors.Is(err, ErrTampered) && !errors.Is(err, ErrCorrupt) {
-		t.Fatalf("err = %v, want a refusal", err)
+	opt := optInto(pkg, into)
+	rep, err := Run(context.Background(), opt)
+	if !errors.Is(err, ErrUnverified) || rep.SigConclusion != pack.ConclusionFailed {
+		t.Fatalf("err = %v conclusion=%q, want an unverified refusal", err, rep.SigConclusion)
 	}
 	if _, err := os.Stat(into); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("traversal package must not write")
 	}
-	_ = rep
+	// The flag opens the gate, but the traversal SIG is rejected as corrupt
+	// before anything is planned or written.
+	opt.AllowUnverified = true
+	if _, err := Run(context.Background(), opt); !errors.Is(err, ErrCorrupt) {
+		t.Fatalf("allowed traversal: err = %v, want ErrCorrupt", err)
+	}
 }
 
 func TestHashMismatchStopsAndReportsRestored(t *testing.T) {

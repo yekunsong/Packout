@@ -36,10 +36,12 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 	if conf != nil {
 		applyConfigDefaults(conf, new(string), new(string), new(string), &cfg.pubkey, &rootList{})
 	}
-	opt := pack.VerifyOptions{PubKeyPath: cfg.pubkey, Jobs: cfg.jobs}
+	trustedPath := trustedKeysPath(conf)
+	opt := pack.VerifyOptions{PubKeyPath: cfg.pubkey, TrustedKeysPath: trustedPath, Jobs: cfg.jobs}
 	opt.OnKeySeen = func(fingerprint string, firstSeen bool) {
 		if firstSeen {
-			r.warn("packout: 首次见到公钥 SHA256:%s；已按 TOFU 信任本次，请通过另一渠道核对指纹", fingerprint)
+			r.warn("packout: 首次见到公钥 SHA256:%s；本次按 TOFU 信任但未持久化。用另一渠道核对指纹后，把该公钥加入 %s（或重跑 packout init）",
+				fingerprint, trustedPath)
 		}
 	}
 	v, err := pack.VerifyWithOptions(cfg.dir, opt)
@@ -71,7 +73,7 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 		}
 	}
 	// The hint is CLI wording only; the exit code stays the design table's.
-	r.warn("下一步：%s", verifyNext(v.Conclusion, cfg.dir))
+	r.warn("下一步：%s", verifyNext(v, cfg.dir))
 	switch v.Conclusion {
 	case pack.ConclusionOK, pack.ConclusionHashOKUnverified:
 		if !cfg.noState {
@@ -86,9 +88,10 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 	}
 }
 
-// verifyNext maps a conclusion word to the one command worth typing next.
-func verifyNext(conclusion, pkg string) string {
-	switch conclusion {
+// verifyNext maps a verdict to the one command worth typing next. The reason
+// matters: "no public key" is not "wrong path" and neither is "tampered".
+func verifyNext(v *pack.Verdict, pkg string) string {
+	switch v.Conclusion {
 	case pack.ConclusionOK:
 		return "packout drill " + pkg + " 演练恢复"
 	case pack.ConclusionHashOKUnverified:
@@ -96,10 +99,28 @@ func verifyNext(conclusion, pkg string) string {
 	case pack.ConclusionUnsigned:
 		return "packout sign " + pkg + " 签名后再 verify（或 packout restore " + pkg + " --into <目标目录> --allow-unverified）"
 	case pack.ConclusionBadSignature:
-		return "packout verify " + pkg + " --pubkey <你的公钥>；核对公钥指纹后再恢复"
+		switch {
+		case hasProblem(v, "no-pubkey"):
+			return "没有可用公钥：packout verify " + pkg + " --pubkey <公钥> 核对来源，或运行 packout init 把本机公钥写入 trusted_keys"
+		case hasProblem(v, "pubkey-invalid"):
+			return "公钥文件不可用：修好 trusted_keys 或改用 packout verify " + pkg + " --pubkey <公钥>"
+		default:
+			return "签名与公钥不符：用 --pubkey 核对指纹，确认来源后重新 packout sign " + pkg
+		}
 	case pack.ConclusionTampered:
 		return "内容与 SIG 不符，不要恢复；回到源机重新 packout pack <目录> --seal"
-	default:
+	case pack.ConclusionEmpty:
 		return "确认路径指向一个包目录（应含 SIG.json 与 manifest/），再看 packout help restore"
+	default:
+		return "SIG 或 manifest 结构有问题：packout verify " + pkg + " --json 看 problems；仍不行就回到源机重新 packout pack"
 	}
+}
+
+func hasProblem(v *pack.Verdict, code string) bool {
+	for _, p := range v.Problems {
+		if p.Code == code {
+			return true
+		}
+	}
+	return false
 }

@@ -22,6 +22,7 @@ type mcpConfig struct {
 	into            string
 	identity        string
 	pubkey          string
+	trustedKeys     string
 	rootsFromConfig bool
 }
 
@@ -45,6 +46,9 @@ func parseMCP(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		applyConfigDefaults(conf, &cfg.profileRef, new(string), &cfg.identity, &cfg.pubkey, &cfg.roots)
 		cfg.rootsFromConfig = before == 0 && len(cfg.roots) > 0
 	}
+	// config's trusted_keys is the trust store, not --pubkey. Passing it here
+	// keeps the MCP verify/restore_plan tools consistent with the CLI.
+	cfg.trustedKeys = trustedKeysPath(conf)
 	return runMCP(ctx, cfg, stderr)
 }
 
@@ -58,7 +62,7 @@ func newMCPFlagSet(cfg *mcpConfig) *flag.FlagSet {
 	fs.StringVar(&cfg.pkg, "package", "", "verify/restore_plan 的包目录（缺省时这两个工具返回 not_configured）")
 	fs.StringVar(&cfg.into, "into", "", "restore_plan 的目标目录（缺省时 restore_plan 返回 not_configured）")
 	fs.StringVar(&cfg.identity, "identity", "", "restore_plan 解密 secrets.age 的 age identity（默认 ~/.config/packout/identity.age）")
-	fs.StringVar(&cfg.pubkey, "pubkey", "", "verify 的公钥文件（默认 ~/.config/packout/trusted_keys）")
+	fs.StringVar(&cfg.pubkey, "pubkey", "", "verify 的公钥文件（默认读 <configDir>/trusted_keys）")
 	return fs
 }
 
@@ -78,14 +82,15 @@ func runMCP(ctx context.Context, cfg mcpConfig, stderr io.Writer) int {
 		return exitUsage
 	}
 	srv, err := mcp.NewServer(mcp.Config{
-		OutDir:   cfg.out,
-		Profile:  p.Name,
-		Roots:    roots,
-		Package:  cfg.pkg,
-		Into:     cfg.into,
-		Identity: cfg.identity,
-		PubKey:   cfg.pubkey,
-		Version:  version,
+		OutDir:      cfg.out,
+		Profile:     p.Name,
+		Roots:       roots,
+		Package:     cfg.pkg,
+		Into:        cfg.into,
+		Identity:    cfg.identity,
+		PubKey:      cfg.pubkey,
+		TrustedKeys: cfg.trustedKeys,
+		Version:     version,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "packout: mcp: %v\n", err)
@@ -174,7 +179,7 @@ const mcpHelp = `用法: packout mcp --out DIR [--root role=PATH]... [--package 
   --into DIR       restore_plan 的目标目录；缺省时 restore_plan 返回
                    not_configured
   --identity FILE  restore_plan 解密 secrets.age 用的 age identity
-  --pubkey FILE    verify 的公钥文件（默认 ~/.config/packout/trusted_keys）
+  --pubkey FILE    verify 的公钥文件（默认读 <configDir>/trusted_keys）
 
 stdout 是 MCP 协议流，因此本命令不提供 --json/--quiet。
 所有工具只读：每次调用都重新 stat/重读 manifest，不缓存；单次结果 ≤ 8 KiB，

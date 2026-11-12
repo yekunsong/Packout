@@ -215,8 +215,8 @@ const drillHelp = `用法: packout drill <包目录> [--into DIR] [--write] [--k
   --into DIR       正式恢复时的目标，仅用于报告；drill 永不写它
   --write          真写临时目录（默认只干跑、打印计划）
   --keep           保留临时目录并打印路径（默认演练后删除）
-  --allow-unverified  SIG 结论不是 ok 时仍继续（tampered 除外）
-  --pubkey FILE    公钥文件（默认 ~/.config/packout/trusted_keys）
+  --allow-unverified  SIG 结论不是 ok 时仍继续（tampered 与 empty 除外）
+  --pubkey FILE    公钥文件（默认读 <configDir>/trusted_keys）
   --identity FILE  age identity（默认 ~/.config/packout/identity.age）
   --passphrase / --passphrase-file FILE  从终端/文件读 secrets.age 口令
   --json / --quiet 机器输出 / 只留错误
@@ -285,8 +285,8 @@ config/ 中的 «secret:…» 占位符会现场替换为明文；找不到引�
   --in-place           允许非空目标；先列 diff
   --force              确认执行 --in-place 列出的覆盖
   --dry-run            只跑前四步，零写入
-  --allow-unverified   SIG 结论不是 ok 时仍继续（tampered 除外；红字提示）
-  --pubkey FILE        公钥文件（默认 ~/.config/packout/trusted_keys）
+  --allow-unverified   SIG 结论不是 ok 时仍继续（tampered 与 empty 除外；红字提示）
+  --pubkey FILE        公钥文件（默认读 <configDir>/trusted_keys）
   --identity FILE      age identity（默认 ~/.config/packout/identity.age）
   --passphrase         从终端读口令（与 --identity 二选一）
   --passphrase-file FILE  从文件第一行读口令（与 --passphrase、--identity 互斥）
@@ -303,20 +303,22 @@ const verifyHelp = `用法: packout verify PKG_DIR [--pubkey FILE]
 
 校验一个包。结论词原样打印：
   ok                  签名有效且内容匹配（只有它能说"可以恢复"）
-  hash-ok, unverified 内容匹配但没有可用公钥
+  bad-signature       签名在，但没有可用公钥或公钥不符（trusted_keys 缺失/为空也算）
   tampered            内容与 SIG 不符（签名在也一样）
   unsigned            内容匹配但包没有签名
-  bad-signature       签名在，但没有可信公钥能验证它
+  failed              SIG/manifest 结构损坏，无法完成校验
+  empty               空包或路径无法识别
 只读，不写任何东西。
 
   --pubkey FILE  公钥文件（一行一个，'#' 注释）；不给时读
-                 ~/.config/packout/trusted_keys（存在才读）
+                 <configDir>/trusted_keys（缺失或为空即无可用公钥）
   --jobs N       并行哈希的 worker 数（默认 min(GOMAXPROCS,16)；1 = 串行）
   --json         把结论与问题输出为可解析的 JSON
   --quiet        只输出错误
 
-首次用 --pubkey 见到的公钥会打印 SHA256 指纹并提示 TOFU，请用另一渠道核对。
-退出码: 0 结论为 ok 或 hash-ok, unverified / 2 其余结论 / 3 用法或公钥错误
+首次用 --pubkey 见到的公钥会打印 SHA256 指纹并提示 TOFU，请用另一渠道核对；
+核对后把公钥加入 trusted_keys（packout init 会写入本机公钥）。
+退出码: 0 结论为 ok / 2 其余结论 / 3 用法或公钥错误
 
 下一步：结论 ok 后 packout drill <包> 演练恢复；未签名先 packout sign <包>
 `

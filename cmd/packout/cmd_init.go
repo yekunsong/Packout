@@ -36,11 +36,13 @@ type initKeyResult struct {
 }
 
 type initSummary struct {
-	Config   string            `json:"config"`
-	Roots    map[string]string `json:"roots"`
-	Identity initKeyResult     `json:"identity"`
-	Minisign initKeyResult     `json:"minisign"`
-	Next     []string          `json:"next"`
+	Config           string            `json:"config"`
+	Roots            map[string]string `json:"roots"`
+	Identity         initKeyResult     `json:"identity"`
+	Minisign         initKeyResult     `json:"minisign"`
+	TrustedKeys      string            `json:"trusted_keys"`
+	TrustedKeysAdded bool              `json:"trusted_keys_added"`
+	Next             []string          `json:"next"`
 }
 
 // runInit writes a config after per-root confirmation and creates the missing
@@ -125,6 +127,11 @@ func runInit(ctx context.Context, cfg initConfig, stdout, stderr io.Writer) int 
 	if err != nil {
 		return r.fail(exitUsage, "生成 minisign 密钥：%v", err)
 	}
+	trusted, terr := ensureTrustedKeys(trustedPath, keyPath)
+	if terr == nil {
+		res.TrustedKeys = trustedPath
+		res.TrustedKeysAdded = trusted.Added
+	}
 
 	c := &config{
 		Version:     configVersion,
@@ -139,10 +146,11 @@ func runInit(ctx context.Context, cfg initConfig, stdout, stderr io.Writer) int 
 	}
 
 	res.Next = []string{
-		"packout doctor",
-		"packout scan --out ./out",
-		"packout export --src ./out --out ./pack --with-secrets --recipient " + res.Identity.PublicKey,
-		"packout restore ./pack --into ./restore-drill --dry-run",
+		"packout pack <目录> --seal     # 导出并签名",
+		"packout verify <包目录>        # 应得到 ok",
+		"packout sign <包目录>          # 只对已导出、未签名的包",
+		"packout restore <包目录> --into ./restore-test --dry-run",
+		"packout restore <包目录> --into ./restore-test",
 		"claude mcp add packout -- packout mcp --out ./out",
 	}
 	r.value(res)
@@ -156,12 +164,23 @@ func runInit(ctx context.Context, cfg initConfig, stdout, stderr io.Writer) int 
 		r.info("age identity 已存在，未覆盖：%s", res.Identity.Path)
 	}
 	if res.Minisign.Created {
-		r.warn("packout: 已生成 minisign 密钥 %s（私钥 0600），公钥 %s.pub，指纹 SHA256:%s",
+		r.info("已生成 minisign 密钥 %s（私钥 0600），公钥 %s.pub，指纹 SHA256:%s",
 			res.Minisign.Path, res.Minisign.Path, res.Minisign.Fingerprint)
 	} else {
 		r.info("minisign 密钥已存在，未覆盖：%s", res.Minisign.Path)
 	}
-	r.info("下一步：packout pack <目录> 打出一份会话基线包（或按下面顺序手动走一遍）：")
+	switch {
+	case terr != nil:
+		r.warn("packout: 无法把本机公钥写入 %s：%v（verify 需用 --pubkey）", trustedPath, terr)
+	case trusted.Added:
+		r.info("已把本机公钥写入 %s（0600），之后 packout verify 可直接确认本机签名的包；指纹 SHA256:%s",
+			trustedPath, trusted.Fingerprint)
+	case trusted.Warning != "":
+		r.warn("packout: %s 已有无法解析的内容，未修改（请手动检查）：%s", trustedPath, trusted.Warning)
+	default:
+		r.info("trusted_keys 已包含本机公钥，未改动：%s", trustedPath)
+	}
+	r.info("下一步：packout pack <目录> --seal 打出一份会话基线包（或按下面顺序手动走一遍）：")
 	for _, s := range res.Next {
 		r.info("  %s", s)
 	}
@@ -279,4 +298,92 @@ func ensureMinisignKey(path string) (initKeyResult, error) {
 	res.Created = true
 	res.Fingerprint = fpr
 	return res, nil
+}
+
+// trustedKeysOutcome describes what init did to the trust store.
+type trustedKeysOutcome struct {
+	Added       bool
+	Present     bool
+	Fingerprint string
+	// Warning is set when the existing file could not be parsed; the file is
+	// then left byte-for-byte untouched.
+	Warning string
+}
+
+// ensureTrustedKeys publishes the local public key in the trust store used by
+// verify. A missing file is created 0600; an existing file is only appended to,
+// never rewritten or truncated, and a malformed one is left alone.
+func ensureTrustedKeys(path, keyPath string) (trustedKeysOutcome, error) {
+	var out trustedKeysOutcome
+	pubText, fpr, err := pack.PublicKeyText(keyPath)
+	if err != nil {
+		return out, err
+	}
+	out.Fingerprint = fpr
+	pubLine := minisignKeyLine(pubText)
+	if pubLine == "" {
+		return out, errors.New("派生出的公钥为空")
+	}
+
+	existing, rerr := os.ReadFile(path)
+	switch {
+	case rerr == nil:
+		for _, raw := range strings.Split(string(existing), "\n") {
+			if strings.TrimSpace(raw) == pubLine {
+				out.Present = true
+				return out, nil
+			}
+		}
+		if !blankKeysData(existing) {
+			if _, perr := pack.LoadPublicKeys(path); perr != nil {
+				out.Warning = perr.Error()
+				return out, nil
+			}
+		}
+	case errors.Is(rerr, fs.ErrNotExist):
+		// Created below.
+	default:
+		return out, rerr
+	}
+
+	var content []byte
+	if len(existing) > 0 {
+		content = append(content, existing...)
+		if !strings.HasSuffix(string(content), "\n") {
+			content = append(content, '\n')
+		}
+	} else {
+		content = append(content, "# packout trusted public keys; one minisign public key per line\n"...)
+	}
+	content = append(content, pubText...)
+	content = append(content, '\n')
+	if err := writeFileAtomic(path, content, 0o600); err != nil {
+		return out, err
+	}
+	out.Added = true
+	return out, nil
+}
+
+// minisignKeyLine returns the base64 key line from a public-key text.
+func minisignKeyLine(text string) string {
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "untrusted comment:") {
+			continue
+		}
+		return line
+	}
+	return ""
+}
+
+// blankKeysData reports whether data holds no key lines (blank/comments only).
+func blankKeysData(data []byte) bool {
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "untrusted comment:") {
+			continue
+		}
+		return false
+	}
+	return true
 }

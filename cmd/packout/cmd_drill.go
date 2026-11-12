@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -61,8 +62,8 @@ func parseDrill(ctx context.Context, args []string, stdout, stderr io.Writer) in
 	fs.StringVar(&cfg.into, "into", "", "正式恢复时的目标目录（仅用于报告，drill 不写它）")
 	fs.BoolVar(&cfg.write, "write", false, "真写系统临时目录（默认只干跑并打印计划）")
 	fs.BoolVar(&cfg.keep, "keep", false, "保留临时目录并打印路径")
-	fs.BoolVar(&cfg.allowUnverified, "allow-unverified", false, "SIG 结论不是 ok 时仍继续（tampered 除外）")
-	fs.StringVar(&cfg.pubkey, "pubkey", "", "公钥文件（默认 ~/.config/packout/trusted_keys）")
+	fs.BoolVar(&cfg.allowUnverified, "allow-unverified", false, "SIG 结论不是 ok 时仍继续（tampered 与 empty 除外）")
+	fs.StringVar(&cfg.pubkey, "pubkey", "", "公钥文件（默认读 <configDir>/trusted_keys）")
 	fs.StringVar(&cfg.identity, "identity", "", "age identity（默认 ~/.config/packout/identity.age）")
 	fs.BoolVar(&cfg.passphrase, "passphrase", false, "从终端读 secrets.age 口令")
 	fs.StringVar(&cfg.passphraseFile, "passphrase-file", "", "从文件第一行读口令（与 --passphrase 互斥）")
@@ -142,10 +143,12 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 		DryRun:          true,
 		AllowUnverified: cfg.allowUnverified,
 		PubKeyPath:      cfg.pubkey,
+		TrustedKeysPath: trustedKeysPath(conf),
 		Crypt:           crypt,
 		OnKeySeen: func(fpr string, firstSeen bool) {
 			if firstSeen {
-				r.warn("packout: 首次见到公钥 SHA256:%s；已按 TOFU 信任本次，请通过另一渠道核对指纹", fpr)
+				r.warn("packout: 首次见到公钥 SHA256:%s；本次按 TOFU 信任但未持久化。核对指纹后把公钥加入 %s（或重跑 packout init）",
+					fpr, trustedKeysPath(conf))
 			}
 		},
 	}
@@ -163,6 +166,10 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 	}
 	if rep != nil {
 		printRestoreReport(r, rep)
+		if rep.AllowedUnverified {
+			r.warn("\x1b[31mpackout: 警告：SIG 结论 %q —— 来源未确认，已按 --allow-unverified 继续；可用 --pubkey 核对来源\x1b[0m",
+				rep.SigConclusion)
+		}
 	}
 	sum := drillSummary{
 		Package:          cfg.pkg,
@@ -179,8 +186,7 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 	}
 	if err != nil {
 		r.value(sum)
-		next := "packout verify " + cfg.pkg + "（签名/公钥问题先看结论）"
-		return r.fail(restoreExit(err), "%s", withNext(err.Error(), next))
+		return r.fail(restoreExit(err), "%s", withNext(err.Error(), drillNext(err, cfg.pkg)))
 	}
 
 	if cfg.write {
@@ -194,6 +200,10 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 		}
 		if rep != nil {
 			printRestoreReport(r, rep)
+			if rep.AllowedUnverified {
+				r.warn("\x1b[31mpackout: 警告：SIG 结论 %q —— 来源未确认，已按 --allow-unverified 继续；可用 --pubkey 核对来源\x1b[0m",
+					rep.SigConclusion)
+			}
 			sum.DryRun = false
 			sum.SigConclusion = rep.SigConclusion
 			sum.Restored = len(rep.Restored)
@@ -238,4 +248,17 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 		}
 	}
 	return exitOK
+}
+
+// drillNext names the real next step for a gate failure instead of blaming the
+// path or calling every non-ok verdict tampering.
+func drillNext(err error, pkg string) string {
+	switch {
+	case errors.Is(err, restore.ErrTampered):
+		return "不要恢复这个包；回到源机重新 packout pack <目录> --seal"
+	case errors.Is(err, restore.ErrUnverified):
+		return "packout verify " + pkg + " 看实际结论；确认来源后再加 --allow-unverified"
+	default:
+		return "packout verify " + pkg + " 看实际结论"
+	}
 }

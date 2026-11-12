@@ -13,8 +13,9 @@ import "errors"
 var (
 	// ErrUsage means a required flag is missing or contradicts another.
 	ErrUsage = errors.New("restore: usage")
-	// ErrUnverified means the SIG conclusion is not ok and
-	// --allow-unverified was not given.
+	// ErrUnverified means the SIG conclusion is not ok and the user did not
+	// pass --allow-unverified (or the conclusion is empty, which the flag
+	// never widens).
 	ErrUnverified = errors.New("restore: package is not verified")
 	// ErrTampered means the package contents do not match SIG, so the hashes
 	// cannot be trusted even with --allow-unverified.

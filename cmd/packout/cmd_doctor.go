@@ -112,7 +112,7 @@ func runDoctor(ctx context.Context, cfg doctorConfig, stdout, stderr io.Writer) 
 	}
 	if _, statErr := os.Lstat(trusted); statErr != nil {
 		if errors.Is(statErr, fs.ErrNotExist) {
-			sum.add("trusted_keys", "warn", "不存在；verify 会给出 unverified", trusted)
+			sum.add("trusted_keys", "warn", "不存在；verify 会给出 bad-signature（用 --pubkey 或重跑 packout init）", trusted)
 		} else {
 			sum.add("trusted_keys", "fail", statErr.Error(), trusted)
 		}

@@ -75,10 +75,12 @@ func runRestore(ctx context.Context, cfg restoreConfig, stdout, stderr io.Writer
 		DryRun:          cfg.dryRun,
 		AllowUnverified: cfg.allowUnverified,
 		PubKeyPath:      cfg.pubkey,
+		TrustedKeysPath: trustedKeysPath(conf),
 		Crypt:           crypt,
 		OnKeySeen: func(fpr string, firstSeen bool) {
 			if firstSeen {
-				r.warn("packout: 首次见到公钥 SHA256:%s；已按 TOFU 信任本次，请通过另一渠道核对指纹", fpr)
+				r.warn("packout: 首次见到公钥 SHA256:%s；本次按 TOFU 信任但未持久化。核对指纹后把公钥加入 %s（或重跑 packout init）",
+					fpr, trustedKeysPath(conf))
 			}
 		},
 	}
@@ -90,7 +92,7 @@ func runRestore(ctx context.Context, cfg restoreConfig, stdout, stderr io.Writer
 		return exitFromCtx(r, ctx)
 	}
 	if rep != nil && rep.AllowedUnverified {
-		r.warn("\x1b[31mpackout: 警告：SIG 结论 %q —— 内容完整但未确认来源，已按 --allow-unverified 继续\x1b[0m",
+		r.warn("\x1b[31mpackout: 警告：SIG 结论 %q —— 来源未确认，已按 --allow-unverified 继续；可用 --pubkey 核对来源\x1b[0m",
 			rep.SigConclusion)
 	}
 	if rep != nil {
@@ -120,6 +122,10 @@ func restoreNext(err error, cfg restoreConfig) string {
 		return "packout help restore 看参数，或先 packout drill " + cfg.pkg
 	case errors.Is(err, restore.ErrCanceled):
 		return "packout restore " + cfg.pkg + " --into " + cfg.into + " --dry-run 先看计划"
+	case errors.Is(err, restore.ErrTampered):
+		return "不要恢复这个包；回到源机重新 packout pack <目录> --seal"
+	case errors.Is(err, restore.ErrUnverified):
+		return "packout verify " + cfg.pkg + " 看结论；确认来源后再加 --allow-unverified 重跑"
 	default:
 		return "packout verify " + cfg.pkg + " 看结论；未初始化先 packout init"
 	}

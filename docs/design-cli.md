@@ -47,7 +47,8 @@
 - 文件 0600（Unix）、父目录 0700；严格 JSON，未知键与未知 `version` 都是退出 3 并打印路径。
 - 字段：`version`（必须 1）、`profile`、`preset`、`roots`（role→绝对路径）、`identity`、`trusted_keys`。
 - 优先级恒为 **CLI 参数 > 配置文件 > profile 默认值**；config 只填空缺，不覆盖任何显式参数。
-- `roots` 在 scan/export/mcp 中作为 `--root` 的缺省；`preset` 给 scan/pack；`identity`/`trusted_keys` 给 export/restore/verify/mcp/pack。
+- `roots` 在 scan/export/mcp 中作为 `--root` 的缺省；`preset` 给 scan/pack；`identity` 给 export/restore/mcp/pack。
+- `trusted_keys` 是 verify/restore/mcp 的**可信公钥库**，经 `VerifyOptions.TrustedKeysPath` 传入，**不是** `--pubkey`：显式 `--pubkey` 永远优先且是唯一验签来源，库只用于 first-seen 判定。文件缺失/为空/损坏时无可用公钥，结论是 `bad-signature`（不是 `failed`）。`init` 会创建它并写入本机公钥（0600；已有内容只追加不覆盖）。
 - 配置文件坏了是用法错误（3），消息必须带路径；缺文件不算错。
 
 ## 关键约束
@@ -58,7 +59,8 @@
 - `--profile` 可给内置名或文件路径；文件路径的 profile 视为半可信输入，加载时打印其哈希。
 - `report` 恒传 `IncludeSignals: true`；`--no-signals` 显式关。
 - `report --lan` 才绑 `0.0.0.0`，并在 stderr 打印实际 URL 与警示。
-- `verify` 的结论词原样打印，不做美化（`hash-ok, unverified` 就是 `hash-ok, unverified`）。
+- `verify` 的结论词原样打印，不做美化。无可用公钥（trusted_keys 缺失/为空/加载失败）且树哈希匹配时是 `bad-signature`，不是 `failed`；树哈希不符仍是 `tampered`（先树后签名，INV-C06）。`hash-ok, unverified` 仅作为历史结论词保留。
+- `restore`/`drill` 门禁只看结论：`tampered` 拒绝且 `--allow-unverified` 不放行；`empty`（空包/不可识别）同样不放行；`unsigned`/`bad-signature`/`failed` 在 `--allow-unverified` 下继续并红字警告，否则错误文案写实际结论与下一步，不得说“tampered”。
 - `scan` 会在输出目录写 `roots.json`（实例名→绝对路径）。它是本机元数据，**不进包**；`export` 靠它免去重敲 `--root`。
 - 所有命令支持 `--json` 输出机器可读摘要；`--quiet` 只留错误。
 

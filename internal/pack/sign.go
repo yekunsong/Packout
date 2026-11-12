@@ -241,6 +241,26 @@ func loadPrivateKey(path string) (minisign.PrivateKey, string, error) {
 	return priv, KeyFingerprint(&pub), nil
 }
 
+// PublicKeyText derives the public key text (untrusted comment + base64) from
+// an unencrypted minisign private key. It lets `init` publish the local public
+// half even when only the private key was imported and no .pub file exists.
+// The returned fingerprint is the same SHA-256 read-out used by sign/verify.
+func PublicKeyText(privatePath string) (string, string, error) {
+	priv, fingerprint, err := loadPrivateKey(privatePath)
+	if err != nil {
+		return "", "", err
+	}
+	pub, ok := priv.Public().(minisign.PublicKey)
+	if !ok {
+		return "", "", fmt.Errorf("%w: %s has no public key", ErrInvalidKey, privatePath)
+	}
+	text, err := pub.MarshalText()
+	if err != nil {
+		return "", "", err
+	}
+	return string(text), fingerprint, nil
+}
+
 // LoadPublicKeys parses a trusted-keys file: one base64 minisign public key per
 // line, '#' comments allowed. Full minisign .pub files are accepted too (their
 // "untrusted comment:" line is skipped).

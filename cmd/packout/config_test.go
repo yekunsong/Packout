@@ -171,7 +171,7 @@ func TestInitYesCreatesEverything(t *testing.T) {
 	if c.Version != 1 || c.Roots["home"] != home {
 		t.Fatalf("config content: %+v", c)
 	}
-	for _, p := range []string{cfgPath, filepath.Join(cfgDir, "identity.age"), filepath.Join(cfgDir, "minisign.key")} {
+	for _, p := range []string{cfgPath, filepath.Join(cfgDir, "identity.age"), filepath.Join(cfgDir, "minisign.key"), filepath.Join(cfgDir, "trusted_keys")} {
 		fi, err := os.Lstat(p)
 		if err != nil {
 			t.Fatalf("%s: %v", p, err)
@@ -182,6 +182,19 @@ func TestInitYesCreatesEverything(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(cfgDir, "minisign.key.pub")); err != nil {
 		t.Fatalf("public key missing: %v", err)
+	}
+	// init publishes the local public key so an immediately following
+	// `pack --seal` / `verify` needs no extra flag.
+	pubText, err := os.ReadFile(filepath.Join(cfgDir, "minisign.key.pub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedText, err := os.ReadFile(filepath.Join(cfgDir, "trusted_keys"))
+	if err != nil {
+		t.Fatalf("trusted_keys not created: %v", err)
+	}
+	if !strings.Contains(string(trustedText), minisignKeyLine(string(pubText))) {
+		t.Fatalf("trusted_keys lacks the local public key: %q", trustedText)
 	}
 
 	// Second run refuses to overwrite the config, and --force keeps the keys.
@@ -205,6 +218,105 @@ func TestInitYesCreatesEverything(t *testing.T) {
 	}
 	if string(keyBefore) != string(keyAfter) {
 		t.Fatal("--force overwrote the private key")
+	}
+}
+
+func TestInitTrustedKeysAppendsWithoutOverwriting(t *testing.T) {
+	cfgDir := isolateConfig(t)
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	chdirProject(t)
+	old := initStdin
+	initStdin = strings.NewReader("")
+	defer func() { initStdin = old }()
+
+	// An existing trust store with a user comment and an unrelated key.
+	otherPriv := filepath.Join(t.TempDir(), "other.key")
+	if _, err := pack.GenerateKeyPair(otherPriv, ""); err != nil {
+		t.Fatal(err)
+	}
+	otherPub, err := os.ReadFile(otherPriv + ".pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedPath := filepath.Join(cfgDir, "trusted_keys")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	existing := "# keep this comment\n" + string(otherPub) + "\n"
+	if err := os.WriteFile(trustedPath, []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code, _, stderr := run(t, "init", "--yes", "--quiet"); code != exitOK {
+		t.Fatalf("init: code=%d stderr=%q", code, stderr)
+	}
+	localPub, err := os.ReadFile(filepath.Join(cfgDir, "minisign.key.pub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	localLine := minisignKeyLine(string(localPub))
+	after, err := os.ReadFile(trustedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"# keep this comment", minisignKeyLine(string(otherPub)), localLine} {
+		if !strings.Contains(string(after), want) {
+			t.Fatalf("trusted_keys lost %q: %q", want, after)
+		}
+	}
+
+	// A second init must not duplicate the local key.
+	if code, _, stderr := run(t, "init", "--yes", "--force", "--quiet"); code != exitOK {
+		t.Fatalf("init --force: code=%d stderr=%q", code, stderr)
+	}
+	after, err = os.ReadFile(trustedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(after), localLine); got != 1 {
+		t.Fatalf("local key appears %d times, want 1: %q", got, after)
+	}
+}
+
+func TestInitLeavesMalformedTrustedKeysAlone(t *testing.T) {
+	cfgDir := isolateConfig(t)
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	chdirProject(t)
+	old := initStdin
+	initStdin = strings.NewReader("")
+	defer func() { initStdin = old }()
+
+	trustedPath := filepath.Join(cfgDir, "trusted_keys")
+	if err := os.MkdirAll(cfgDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	const junk = "not-a-key\n"
+	if err := os.WriteFile(trustedPath, []byte(junk), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := run(t, "init", "--yes")
+	if code != exitOK {
+		t.Fatalf("init: code=%d stderr=%q", code, stderr)
+	}
+	after, err := os.ReadFile(trustedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != junk {
+		t.Fatalf("malformed trusted_keys was modified: %q", after)
+	}
+	if !strings.Contains(stderr, "无法解析") && !strings.Contains(stderr, "未修改") {
+		t.Fatalf("warning missing: %q", stderr)
 	}
 }
 

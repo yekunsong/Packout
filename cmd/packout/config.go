@@ -136,6 +136,11 @@ func (c *config) configRoots() rootList {
 
 // applyConfigDefaults fills CLI gaps. The precedence rule is the task's:
 // explicit flags always win; config only fills what the user left out.
+//
+// pubkey is intentionally left alone: config's trusted_keys is the trust store
+// (passed to VerifyOptions.TrustedKeysPath), not an explicit --pubkey. Merging
+// the two would turn a missing store into a bad key path and disable the
+// TOFU first-seen read-out (D-044 #4).
 func applyConfigDefaults(c *config, profileRef, preset, identity, pubkey *string, roots *rootList) {
 	if c == nil {
 		return
@@ -149,12 +154,24 @@ func applyConfigDefaults(c *config, profileRef, preset, identity, pubkey *string
 	if *identity == "" {
 		*identity = c.Identity
 	}
-	if *pubkey == "" {
-		*pubkey = c.TrustedKeys
-	}
 	if len(*roots) == 0 {
 		*roots = c.configRoots()
 	}
+}
+
+// trustedKeysPath returns the effective trusted-keys file: config's
+// trusted_keys when set, otherwise <configDir>/trusted_keys. Unlike
+// pack.DefaultTrustedKeysPath this follows XDG_CONFIG_HOME/AppData, so it is
+// the same location init writes.
+func trustedKeysPath(c *config) string {
+	if c != nil && c.TrustedKeys != "" {
+		return c.TrustedKeys
+	}
+	p, err := defaultTrustedKeysPath()
+	if err != nil {
+		return ""
+	}
+	return p
 }
 
 // writeConfig lands the config atomically with 0600 on Unix. Parent dirs are
