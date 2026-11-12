@@ -10,11 +10,12 @@ import (
 )
 
 type verifyConfig struct {
-	dir    string
-	pubkey string
-	json   bool
-	quiet  bool
-	jobs   int
+	noState bool
+	dir     string
+	pubkey  string
+	json    bool
+	quiet   bool
+	jobs    int
 }
 
 // runVerify checks one package. The conclusion word is printed verbatim
@@ -69,13 +70,36 @@ func runVerify(ctx context.Context, cfg verifyConfig, stdout, stderr io.Writer) 
 			r.warn("packout:   %s %s", p.Code, p.Path)
 		}
 	}
+	// The hint is CLI wording only; the exit code stays the design table's.
+	r.warn("下一步：%s", verifyNext(v.Conclusion, cfg.dir))
 	switch v.Conclusion {
 	case pack.ConclusionOK, pack.ConclusionHashOKUnverified:
+		if !cfg.noState {
+			recordVerify(r.warn, cfg.dir, v.Conclusion)
+		}
 		return exitOK
 	default:
 		if errors.Is(err, pack.ErrInvalidPubKey) {
 			return exitUsage
 		}
 		return exitPartial
+	}
+}
+
+// verifyNext maps a conclusion word to the one command worth typing next.
+func verifyNext(conclusion, pkg string) string {
+	switch conclusion {
+	case pack.ConclusionOK:
+		return "packout drill " + pkg + " 演练恢复"
+	case pack.ConclusionHashOKUnverified:
+		return "packout verify " + pkg + " --pubkey <公钥> 确认来源，或 packout restore " + pkg + " --into <目标目录> --allow-unverified"
+	case pack.ConclusionUnsigned:
+		return "packout sign " + pkg + " 签名后再 verify（或 packout restore " + pkg + " --into <目标目录> --allow-unverified）"
+	case pack.ConclusionBadSignature:
+		return "packout verify " + pkg + " --pubkey <你的公钥>；核对公钥指纹后再恢复"
+	case pack.ConclusionTampered:
+		return "内容与 SIG 不符，不要恢复；回到源机重新 packout pack <目录> --seal"
+	default:
+		return "确认路径指向一个包目录（应含 SIG.json 与 manifest/），再看 packout help restore"
 	}
 }

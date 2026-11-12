@@ -21,6 +21,8 @@ import (
 )
 
 type exportConfig struct {
+	// noState suppresses the state.json update (pack records the chain once).
+	noState        bool
 	src            string
 	out            string
 	force          bool
@@ -64,7 +66,7 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 		return r.usage("export 需要 --src <扫描输出目录>")
 	}
 	if code, msg := checkOut(cfg.out, false, cfg.force); code != exitOK {
-		return r.fail(code, "%s", msg)
+		return r.fail(code, "%s", withNext(msg, "packout export --src "+cfg.src+" --out "+cfg.out+" --force"))
 	}
 	conf, confPath, err := loadConfig()
 	if err != nil {
@@ -161,6 +163,9 @@ func runExport(ctx context.Context, cfg exportConfig, stdout, stderr io.Writer) 
 	r.info("包已写入 %s：%d 个条目，%d 字节，SIG=%s", res.OutDir, res.Entries, res.TotalBytes, res.SIGPath)
 	for _, w := range res.Warnings {
 		r.warn("packout: 警告：%s", w)
+	}
+	if !cfg.noState {
+		recordExport(r.warn, res.OutDir, res.Entries)
 	}
 	return exitOK
 }

@@ -14,7 +14,26 @@
 | `export` | 打成状态包（读 `<src>/roots.json` 与清单头里的 profile；`--profile`/`--root` 可覆盖） | 只写 `--out` |
 | `verify` | 校验一个包 | 只读 |
 | `profile list/probe/test` | 列内置、对真机探测存在性、跑 selftest | probe 只读 |
+| `status` | 只读显示配置/根/上次 scan/包/verify 结论/时间 | 无 |
+| `drill` | 在系统临时目录演练恢复（默认干跑，`--write` 真写），报告三段摘要 | 系统临时目录（`--keep` 才留） |
+| `completion` | 输出 bash/zsh/fish/powershell 补全脚本 | 无（只到 stdout） |
 | `version` | 版本、commit、profile schema 版本 | — |
+
+## 分层帮助与引导（D-052）
+
+- 裸 `packout` 是状态感知引导，**恒退出 0、不写任何文件**：无配置打印三行（这是什么 / `packout init` / `packout help`）；有配置无包记录建议 `packout pack <目录>` 并给示例；有包记录打印 `status` 摘要与 verify/drill/restore 建议。
+- 主帮助只列 5 个常用动词 `init / pack / verify / drill / restore`，另给一行“其余：`packout help --all`”。`packout help --all` 列全部动词。
+- `packout help <命令>` 与 `<命令> -h` 必须逐字一致（同一个常量，`profile -h` 也走帮助）。每个命令帮助末尾固定一行“下一步：…”。
+- 位置参数是糖，旧旗标全部保留：`pack <目录>` = `--out <目录>`（两者不同值退出 3）；`verify <包>`、`restore <包> --into`、`drill <包>`。
+- `pack --seal` = 导出后签名；同时给了 `--recipient`/`--passphrase`/`--passphrase-file` 时再加密 RESTORE 凭据（等价 `--with-secrets`），纯 `--seal` 只签名。
+- 错误提示在 CLI 层补“下一步：…”一行（目标非空给 `--in-place --force` 的完整命令、未签名给 `--allow-unverified`/`sign`、未初始化给 `packout init`），**退出码不变**。
+
+## 状态文件 state.json（D-052）
+
+- 路径 `<configDir>/state.json`，`version: 1`，0600、原子改名；记录配置根、上次 scan（计数+根）、最近的包（最多 5 个）、上次 verify 结论、上次 restore 目标。
+- scan/export/pack/verify/restore **成功**后才写；失败或中断不写；`pack` 的内层 scan/export 不写，链末记一次。
+- 坏文件/未知 version 只 warn 并按空状态处理（`status` 仍退出 0）。只用于引导与展示，**不参与任何安全判断**。
+- `state.json` 属于**用户配置目录**，和 config/密钥同级；测试与 CI 必须隔离 `configDir`（cmd 包的 `TestMain` 默认把 `XDG_CONFIG_HOME`/`AppData`/`HOME` 指到临时目录，个别用例再用 `isolateConfig` 覆盖），任何成功命令都不得写真实 home。
 
 ## 配置文件
 

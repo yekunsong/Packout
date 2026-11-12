@@ -15,6 +15,8 @@ import (
 )
 
 type scanConfig struct {
+	// noState suppresses the state.json update (pack records the chain once).
+	noState        bool
 	profileRef     string
 	roots          rootList
 	out            string
@@ -82,7 +84,7 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 		return r.usage("%v", err)
 	}
 	if code, msg := checkOut(cfg.out, false, cfg.force); code != exitOK {
-		return r.fail(code, "%s", msg)
+		return r.fail(code, "%s", withNext(msg, "packout scan --out "+cfg.out+" --force"))
 	}
 	salt, err := saltSource(cfg.stableSalt)
 	if err != nil {
@@ -158,6 +160,9 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 	if !res.Complete {
 		r.warn("packout: 清单标记为不完整（footer.complete=false）")
 		return exitPartial
+	}
+	if !cfg.noState {
+		recordScan(r.warn, cfg.out, res.Units, res.Roots)
 	}
 	return exitOK
 }

@@ -407,3 +407,12 @@ func resolvePassphrase(r *reporter, terminal bool, file string, stderr io.Writer
 	}
 	return pw, exitOK
 }
+
+// withNext appends one 下一步 line to a human error message. It only changes
+// the wording; the exit code stays whatever the caller already classified.
+func withNext(msg, next string) string {
+	if next == "" {
+		return msg
+	}
+	return msg + "\n下一步：" + next
+}

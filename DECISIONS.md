@@ -473,3 +473,17 @@ P1 的安全门槛比 P0 高一个量级：P0 只读，P1 开始往磁盘写字�
 - **`pack` 是一条链，不是新格式**：scan 到 `--out` 同卷临时目录 → export → 可选 sign；每步沿用原退出码。成功删临时目录，失败保留已完成产物并在 stderr 打印路径。`--key` 隐含 `--sign`。
 
 限制：doctor 的磁盘阈值是固定的 100 MiB fail / 1 GiB warn；`pack` 的临时扫描目录位于 `--out` 父目录，失败后需用户自行清理；配置没有备份/迁移命令。
+
+## D-052 CLI 分层与引导
+接受。目标是“不用逐个记命令，功能一个不少”，旧参数与行为全部保留，只加糖和提示。
+
+- **裸 `packout` 状态感知**：无配置三行（是什么 / `packout init` / `packout help`）；有配置无包建议 `packout pack <目录>`；有包打印状态摘要与 verify/drill/restore 建议。恒退出 0，不写文件。
+- **分层帮助**：主帮助只列 `init/pack/verify/drill/restore` + “其余：`packout help --all`”；`help --all` 列全部动词；`help <cmd>` 与 `<cmd> -h` 同源（同一常量），每份帮助末尾固定“下一步：”一行。现有动词一个不减（含 doctor/scan/report/export/sign/mcp/profile/version）。
+- **位置参数与 `--seal`**：`pack <目录>` = `--out <目录>`（冲突值退出 3）；`--seal` = 导出后签名，带 `--recipient`/`--passphrase`/`--passphrase-file` 时顺带 `--with-secrets`，纯 `--seal` 只签名。旧 `--out/--sign/--key/--with-secrets` 语义不变。
+- **`status`**：只读；读 `<configDir>/state.json`（`version:1`，原子写，坏文件只 warn），显示配置/根/上次 scan/最近包/verify 结论/restore 时间；`--json` 输出单项对象。
+- **`drill`**：默认在系统临时目录干跑并打印计划，`--write` 才真写该临时目录；`--keep` 保留并打印路径；`--into` 只是“若正式恢复会到哪里”的报告目标，**任何情况下不写**。结束删除临时目录（除 `--keep`），报告按 restore 三段计数。退出码沿用 restore。
+- **`completion`**：四种 shell 的静态脚本打到 stdout，不写文件；动词与常用旗标为此构建的固定清单。
+- **状态只做引导**：scan/export/pack/verify/restore 成功后尽力原子更新；失败/中断不写；`pack` 内层步骤抑制、链末统一记。状态不参与安全判断。
+- **错误带下一步**：CLI 层为“目标非空 → 完整 `--in-place --force` / `--force` 命令、未签名 → `--allow-unverified` 或 `sign`、未初始化 → `packout init`”补一行提示；退出码表不变。
+
+限制：`status` 不是审计日志（只保留最近事实）；`drill --into` 不改变演练目标；干跑不创建临时目录（`--keep` 在干跑下无效果）；`completion` 不含动态旗标补全。`state.json` 属于用户配置目录，测试与 CI 必须隔离 configDir（cmd 包 `TestMain` 默认指到临时目录）。

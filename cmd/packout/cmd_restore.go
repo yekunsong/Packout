@@ -10,6 +10,7 @@ import (
 )
 
 type restoreConfig struct {
+	noState         bool
 	pkg             string
 	into            string
 	inPlace         bool
@@ -102,9 +103,26 @@ func runRestore(ctx context.Context, cfg restoreConfig, stdout, stderr io.Writer
 		printRestoreReport(r, rep)
 	}
 	if err != nil {
-		return r.fail(restoreExit(err), "%v", err)
+		return r.fail(restoreExit(err), "%s", withNext(err.Error(), restoreNext(err, cfg)))
+	}
+	if !cfg.dryRun && !cfg.noState && rep != nil {
+		recordRestore(r.warn, cfg.pkg, cfg.into, len(rep.Restored))
 	}
 	return exitOK
+}
+
+// restoreNext turns the common restore failures into the next full command.
+func restoreNext(err error, cfg restoreConfig) string {
+	switch {
+	case errors.Is(err, restore.ErrDestNotEmpty):
+		return "packout restore " + cfg.pkg + " --into " + cfg.into + " --in-place --force"
+	case errors.Is(err, restore.ErrUsage):
+		return "packout help restore 看参数，或先 packout drill " + cfg.pkg
+	case errors.Is(err, restore.ErrCanceled):
+		return "packout restore " + cfg.pkg + " --into " + cfg.into + " --dry-run 先看计划"
+	default:
+		return "packout verify " + cfg.pkg + " 看结论；未初始化先 packout init"
+	}
 }
 
 func restoreExit(err error) int {

@@ -31,7 +31,9 @@ type packConfig struct {
 	passphraseFile string
 	identity       string
 	sign           bool
+	seal           bool
 	key            string
+	noState        bool
 	jobs           int
 	json           bool
 	quiet          bool
@@ -53,10 +55,10 @@ func runPack(ctx context.Context, cfg packConfig, stdout, stderr io.Writer) int 
 	r := &reporter{stdout: stdout, stderr: stderr, json: cfg.json, quiet: cfg.quiet}
 
 	if cfg.out == "" {
-		return r.usage("pack 需要 --out <包目录>")
+		return r.usage("pack 需要 <目录> 或 --out <包目录>")
 	}
 	if code, msg := checkOut(cfg.out, false, cfg.force); code != exitOK {
-		return r.fail(code, "%s", msg)
+		return r.fail(code, "%s", withNext(msg, "packout pack "+cfg.out+" --force"))
 	}
 	abs, err := fsx.Abs(cfg.out)
 	if err != nil {
@@ -97,6 +99,7 @@ func runPack(ctx context.Context, cfg packConfig, stdout, stderr io.Writer) int 
 		stableSalt:     cfg.stableSalt,
 		jobs:           cfg.jobs,
 		quiet:          subQuiet,
+		noState:        true,
 	}, subOut, stderr)
 	if code != exitOK {
 		return code
@@ -115,6 +118,7 @@ func runPack(ctx context.Context, cfg packConfig, stdout, stderr io.Writer) int 
 		roots:          cfg.roots,
 		jobs:           cfg.jobs,
 		quiet:          subQuiet,
+		noState:        true,
 	}, subOut, stderr)
 	if code != exitOK {
 		r.warn("packout: 失败前的产物保留在：扫描 %s", scanOut)
@@ -135,7 +139,11 @@ func runPack(ctx context.Context, cfg packConfig, stdout, stderr io.Writer) int 
 			if errors.Is(serr, pack.ErrNoKey) || errors.Is(serr, pack.ErrKeyPermissions) ||
 				errors.Is(serr, pack.ErrInvalidKey) || errors.Is(serr, pack.ErrInvalidConfig) {
 				r.warn("packout: 产物保留在：扫描 %s，包 %s", scanOut, abs)
-				return r.usage("pack sign: %v", serr)
+				next := "packout init 生成密钥，或给 --key <私钥>"
+				if errors.Is(serr, pack.ErrKeyPermissions) {
+					next = "chmod 600 <私钥> 后重试"
+				}
+				return r.usage("%s", withNext("pack sign: "+serr.Error(), next))
 			}
 			r.warn("packout: 产物保留在：扫描 %s，包 %s", scanOut, abs)
 			return r.fail(exitPartial, "pack sign: %v", serr)
@@ -156,6 +164,9 @@ func runPack(ctx context.Context, cfg packConfig, stdout, stderr io.Writer) int 
 		r.info("未签名；需要签名请加 --sign（或用 --key 指定私钥）")
 	}
 	r.info("校验：%s", sum.Verify)
+	if !cfg.noState {
+		recordPack(r.warn, abs, sum.Signed)
+	}
 	return exitOK
 }
 

@@ -489,10 +489,23 @@ func TestPackOutNotEmpty(t *testing.T) {
 	}
 }
 
-func TestTopHelpListsNewCommands(t *testing.T) {
-	for _, want := range []string{"init", "doctor", "pack"} {
+// TestTopHelpIsLayered pins the layered help contract: the top help teaches
+// the five daily verbs only, and `help --all` is the discovery path for the
+// rest. Nothing was removed, only moved one level down.
+func TestTopHelpIsLayered(t *testing.T) {
+	for _, want := range []string{"init", "pack", "verify", "drill", "restore", "packout help --all"} {
 		if !strings.Contains(topHelp, want) {
 			t.Errorf("topHelp lacks %q", want)
+		}
+	}
+	for _, hidden := range []string{"doctor", "scan", "report", "export", "sign", "mcp", "profile", "completion", "status"} {
+		if strings.Contains(topHelp, "\n  "+hidden) {
+			t.Errorf("topHelp still lists %q; it belongs to help --all", hidden)
+		}
+	}
+	for _, v := range allVerbs {
+		if !strings.Contains(allHelp, "  "+v.name) {
+			t.Errorf("allHelp lacks %q", v.name)
 		}
 	}
 }

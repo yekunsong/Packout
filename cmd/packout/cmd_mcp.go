@@ -180,4 +180,6 @@ stdout 是 MCP 协议流，因此本命令不提供 --json/--quiet。
 所有工具只读：每次调用都重新 stat/重读 manifest，不缓存；单次结果 ≤ 8 KiB，
 超限返回 truncated 与全文所在路径；路径同时给原拼写与 path_key。
 退出码: 0 正常断开 / 2 协议或运行失败 / 3 用法错误 / 5 中断
+
+下一步：packout pack <目录> --seal 打出可 restore 的包
 `
