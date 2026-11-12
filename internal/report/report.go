@@ -439,7 +439,7 @@ func buildView(m *manifest.Doc, opts Options) *view {
 		EndedAt:   fmtTime(m.Footer.EndedAt),
 	}
 	if v.Title == "" {
-		v.Title = "packout 扫描报告"
+		v.Title = "packout 会话基线报告"
 	}
 	if !m.Header.StartedAt.IsZero() && !m.Footer.EndedAt.IsZero() {
 		d := m.Footer.EndedAt.Sub(m.Header.StartedAt)

@@ -1,19 +1,22 @@
 # packout
 
-换电脑之前，先看清这台机器上有什么**搬不走**。
+**packout 是 AI 会话迁移工具，让不同的工作区拥有同一个 AI 会话基线。**
 
-packout 扫描你本机 AI 工具留下的状态——规则、记忆、会话、`.mcp.json` 里的凭据引用、自定义 skill——把它们分成"可再生 / 要重装 / 要重登 / 必须带走"，给你一份能逐条查证的清单，再打成一个可校验的包。
+基线 = 配置（settings、MCP、skills、agents、commands、rules、CLAUDE.md）+ 记忆（memory）+（可选）会话内容。packout 把这套基线扫描成一份能逐条查证的清单，打成可校验、可恢复的包；换机器、开新工作区、多台机器共用一套助手习惯，都从同一个会话基线出发。
 
-**它不是清理器。** 清理是清单里 L0 那一栏的副产物。
+机器绑定项与需要重新登录的凭据不属于基线，只进报告，不会被冒充成可迁移。
 
-## 和"会话交接"不是一回事
+## 和"单机会话交接"不是一回事
 
-近一年出现的 `claude-handoff` 一类工具解决的是**同一台机器上**把上下文从一次会话递给下一次。
-packout 解决的是**跨机器**：这台机器搬走、重装或卖掉之后，还剩什么。
+`claude-handoff` 一类工具解决的是**同一台机器上**把上下文从一次会话递给下一次。
+packout 解决的是**跨工作区、跨机器**：让不同的工作区拥有同一个 AI 会话基线——这台机器搬走、重装或卖掉之后，助手习惯照样接得上。
 
 ## 能做什么
 
+按基线分三段：**建立基线 → 带走并校验 → 恢复与查看**。
+
 ```bash
+# 建立基线：一次扫描，得到配置 + 记忆（+ 可选会话）
 packout init                                                             # 交互生成配置、identity、minisign 密钥
 packout doctor --out ./out                                               # 只读自检，有 fail 退出 2
 packout scan   --out ./out                                               # 用配置的根；没配置时回落到 profile 默认值
@@ -22,12 +25,14 @@ packout scan   --out ./out --root home=$HOME --root repo=/path/to/repo   # 只�
 packout scan   --out ./out --root home=$HOME                      # 默认 standard：配置+记忆，不带会话
 packout scan   --out ./out --root home=$HOME --preset full        # 连会话 transcript 一起带走
 packout scan   --out ./out --root home=$HOME --include agent --exclude history   # 细选
-packout report --out ./out --in ./out # 起一个只绑 127.0.0.1 的报告页
-packout export --src ./out --out ./pack   # 打成可校验的状态包（自动读 out/roots.json）
+# 带走并校验：打成可校验的基线包
+packout report --manifest ./out --out ./REPORT.html   # 起一个只绑 127.0.0.1 的报告页
+packout export --src ./out --out ./pack   # 打成可校验的基线包（自动读 out/roots.json）
 packout export --src ./out --out ./pack --with-secrets --recipient age1…  # 凭据进 secrets.age
 packout export --src ./out --out ./pack --with-secrets --passphrase-file ./pw   # 口令取自文件第一行
 packout sign   ./pack --key ~/.config/packout/minisign.key   # 签名（覆盖 SIG.json + manifest/）
 packout verify ./pack --pubkey ./me.pub   # → ok / tampered / bad-signature / unsigned
+# 恢复与查看：把同一个基线带到新的工作区
 packout restore ./pack --into ~/.claude-home   # 恢复到空目录；未签名默认拒绝
 packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计划
 packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdio）

@@ -161,7 +161,7 @@ func runInit(ctx context.Context, cfg initConfig, stdout, stderr io.Writer) int 
 	} else {
 		r.info("minisign 密钥已存在，未覆盖：%s", res.Minisign.Path)
 	}
-	r.info("下一步：")
+	r.info("下一步：packout pack <目录> 打出一份会话基线包（或按下面顺序手动走一遍）：")
 	for _, s := range res.Next {
 		r.info("  %s", s)
 	}

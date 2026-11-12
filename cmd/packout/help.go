@@ -81,8 +81,9 @@ func helpFor(cmd string) (string, bool) {
 
 const topHelp = `用法: packout <命令> [参数]
 
-packout 把一个环境（配置、记忆、技能、会话……）扫描成清单，打成可验证、
-可恢复的包；恢复前可以先演练。
+packout 是 AI 会话迁移工具，让不同的工作区拥有同一个 AI 会话基线。
+基线 = 配置 + 记忆 +（可选）会话；扫描成清单，打成可验证、可恢复的包，
+恢复前可以先演练。
 
 常用:
   init      生成配置、age identity 与 minisign 密钥

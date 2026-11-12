@@ -1,5 +1,11 @@
 # CLI 设计（实现前定稿）
 
+## 产品口径
+
+**packout 是 AI 会话迁移工具，让不同的工作区拥有同一个 AI 会话基线。**
+
+基线 = 配置（settings、MCP、skills、agents、commands、rules、CLAUDE.md）+ 记忆（memory）+（可选）会话内容。机器绑定项与需重登项不属于基线，只进报告。场景是换机器、开新工作区、多机同一套助手习惯；不是通用备份工具，也不做清理执行（D-053）。这句话是 `README`、`packout help`、裸 `packout`、`init` 下一步与报告标题共用的唯一表述，不再写变体。
+
 `cmd/packout` 只做参数解析与装配，业务全在 internal。**不拼 shell，全部走 argv。**
 
 ## 命令

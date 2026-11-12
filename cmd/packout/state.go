@@ -367,7 +367,7 @@ func runBare(stdout, stderr io.Writer) int {
 	}
 
 	if conf == nil {
-		fmt.Fprintln(stdout, "packout：把配置、记忆与技能扫描成清单，打成可验证、可恢复的状态包。")
+		fmt.Fprintln(stdout, "packout 是 AI 会话迁移工具，让不同的工作区拥有同一个 AI 会话基线。")
 		fmt.Fprintln(stdout, "还没初始化：先运行 packout init 生成配置、age identity 与 minisign 密钥。")
 		fmt.Fprintln(stdout, "想先看看全部命令：packout help（或 packout help --all）。")
 		return exitOK

@@ -169,7 +169,7 @@ func TestServeLifecycle(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("token status = %d, want 200", resp.StatusCode)
 	}
-	if !strings.Contains(string(body), "固定输入报告") && !strings.Contains(string(body), "packout 扫描报告") {
+	if !strings.Contains(string(body), "固定输入报告") && !strings.Contains(string(body), "packout 会话基线报告") {
 		t.Fatal("report title missing from authenticated response")
 	}
 
