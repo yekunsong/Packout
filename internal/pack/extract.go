@@ -11,10 +11,10 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/profile"
-	"packout/internal/secret"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/secret"
 )
 
 // maxExtractFile is the largest file a config extractor will read. Larger

@@ -15,7 +15,7 @@ import (
 	"strconv"
 	"strings"
 
-	"packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/fsx"
 )
 
 // Severity levels of §11.

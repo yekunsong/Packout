@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/pack"
 )
 
 // --- layered help -----------------------------------------------------------

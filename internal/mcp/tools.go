@@ -9,10 +9,10 @@ import (
 	"sort"
 	"strings"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/pack"
-	"packout/internal/restore"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/restore"
 )
 
 // toolSpecs returns the fixed tool list of docs/design-mcp.md. It is exactly

@@ -14,10 +14,10 @@ import (
 
 	"golang.org/x/term"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 
-	"packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/pack"
 )
 
 type exportConfig struct {

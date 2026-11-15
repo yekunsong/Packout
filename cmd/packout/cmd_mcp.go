@@ -8,8 +8,8 @@ import (
 	"os"
 	"runtime"
 
-	"packout/internal/mcp"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/mcp"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // mcpConfig is the startup configuration of `packout mcp`. Everything a tool

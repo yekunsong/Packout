@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"packout/profiles"
+	"github.com/yekunsong/Packout/profiles"
 )
 
 // builtinNames are the profiles shipped with the binary (spec-profile §8).

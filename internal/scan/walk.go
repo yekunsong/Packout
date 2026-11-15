@@ -11,9 +11,9 @@ import (
 	"strings"
 	"sync"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // declarePass implements pass 1 of docs/design-scan.md: expand every

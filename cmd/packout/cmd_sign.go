@@ -5,7 +5,7 @@ import (
 	"errors"
 	"io"
 
-	"packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/pack"
 )
 
 type signConfig struct {

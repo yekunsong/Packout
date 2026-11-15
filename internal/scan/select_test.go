@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 const selectConfigEntry = `{

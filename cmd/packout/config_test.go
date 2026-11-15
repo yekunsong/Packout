@@ -10,7 +10,7 @@ import (
 
 	"filippo.io/age"
 
-	"packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/pack"
 )
 
 // isolateConfig points the per-user config/keys at a temp directory on both

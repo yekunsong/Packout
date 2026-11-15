@@ -10,9 +10,9 @@ import (
 	"strings"
 	"sync"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
-	"packout/internal/secret"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/secret"
 )
 
 // Placeholder is what a config extract carries instead of a RESTORE value:

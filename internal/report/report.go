@@ -29,7 +29,7 @@ import (
 	"strings"
 	"time"
 
-	"packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/manifest"
 )
 
 // Options controls rendering. The zero value is a safe, quiet report with

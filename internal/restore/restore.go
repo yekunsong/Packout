@@ -15,9 +15,9 @@ import (
 	"sort"
 	"strings"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/pack"
 )
 
 // budgetFactor is the free-space multiple required before the first write

@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strconv"
 
-	"packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/fsx"
 )
 
 // Package format constants. SIG.json is the package's own manifest; it is the

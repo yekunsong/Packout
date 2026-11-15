@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"packout/internal/fsx"
-	"packout/internal/pack"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 type packConfig struct {

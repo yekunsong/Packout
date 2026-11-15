@@ -16,9 +16,9 @@ import (
 	"testing"
 	"time"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 type fixedClock struct{ t time.Time }

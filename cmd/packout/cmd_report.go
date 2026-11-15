@@ -8,8 +8,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"packout/internal/manifest"
-	"packout/internal/report"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/report"
 )
 
 type reportConfig struct {

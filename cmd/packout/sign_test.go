@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/pack"
 )
 
 // exportPkg runs scan + export and returns the package path.

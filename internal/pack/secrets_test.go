@@ -9,9 +9,9 @@ import (
 
 	"filippo.io/age"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
-	"packout/internal/secret"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/secret"
 )
 
 const (

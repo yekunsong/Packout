@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"packout/internal/classify"
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/profile"
-	"packout/internal/secret"
+	"github.com/yekunsong/Packout/internal/classify"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/secret"
 )
 
 const (

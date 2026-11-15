@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 func TestParseMCPRequiresOut(t *testing.T) {

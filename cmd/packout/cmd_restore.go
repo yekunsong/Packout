@@ -8,8 +8,8 @@ import (
 	"io/fs"
 	"strings"
 
-	"packout/internal/pack"
-	"packout/internal/restore"
+	"github.com/yekunsong/Packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/restore"
 )
 
 type restoreConfig struct {

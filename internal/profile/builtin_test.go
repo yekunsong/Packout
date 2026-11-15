@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"packout/profiles"
+	"github.com/yekunsong/Packout/profiles"
 )
 
 func TestBuiltinLoadValidate(t *testing.T) {

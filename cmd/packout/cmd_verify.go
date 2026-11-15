@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/pack"
 )
 
 type verifyConfig struct {

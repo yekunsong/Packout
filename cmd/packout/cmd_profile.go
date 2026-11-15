@@ -8,8 +8,8 @@ import (
 	"runtime"
 	"strings"
 
-	"packout/internal/fsx"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 type profileConfig struct {

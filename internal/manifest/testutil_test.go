@@ -28,7 +28,7 @@ func newTestHeader(shardUnits int) Header {
 		ScanID:          "01JQ8Z3K7M2V9T4R6W8X0Y2B4C",
 		ScanSegment:     ScanSegment{SegmentSeq: 0, FirstShard: 1},
 		StartedAt:       testStart,
-		Tool:            "packout/0.1.0",
+		Tool:            "github.com/yekunsong/Packout/0.1.0",
 		Host: Host{
 			OS:              "linux",
 			OSVersion:       "6.8.0",

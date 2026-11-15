@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"packout/internal/pack"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // run drives the real argument parser and returns code + captured streams.

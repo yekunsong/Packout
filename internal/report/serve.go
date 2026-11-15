@@ -18,7 +18,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/manifest"
 )
 
 // idleTimeout is the no-request lifetime of the report server (INV-B10,

@@ -14,7 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/fsx"
 )
 
 // Limits bound an export or verify pass (C-10). Zero values take defaults.

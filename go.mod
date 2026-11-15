@@ -1,4 +1,4 @@
-module packout
+module github.com/yekunsong/Packout
 
 go 1.26
 

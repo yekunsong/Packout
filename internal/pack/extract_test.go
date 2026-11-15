@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 func TestExtractConfigDeSecretsAndKeepsStructure(t *testing.T) {

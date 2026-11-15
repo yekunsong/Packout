@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
-	"packout/internal/scan"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/scan"
 )
 
 type scanConfig struct {
@@ -118,7 +118,7 @@ func runScan(ctx context.Context, cfg scanConfig, stdout, stderr io.Writer) int 
 		WithSessions:   cfg.withSessions || selection.CarriesSessions(),
 		Selection:      selection,
 		Jobs:           cfg.jobs,
-		Tool:           "packout/" + version,
+		Tool:           "github.com/yekunsong/Packout/" + version,
 		Salt:           salt,
 	}
 	for _, b := range bindings {

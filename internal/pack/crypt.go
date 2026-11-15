@@ -11,7 +11,7 @@ import (
 
 	"filippo.io/age"
 
-	"packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/fsx"
 )
 
 // SecretsName is the encrypted secrets member of a package. It is the only

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // applySessionSelection narrows the collected session candidates by mtime,

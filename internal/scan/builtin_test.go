@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 func builtinEnv(t *testing.T, name string) (*profile.Profile, string) {

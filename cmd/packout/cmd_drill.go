@@ -11,8 +11,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"packout/internal/pack"
-	"packout/internal/restore"
+	"github.com/yekunsong/Packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/restore"
 )
 
 // drillConfig is restoreConfig narrowed to what a drill needs: a temporary

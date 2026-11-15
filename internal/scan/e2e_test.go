@@ -12,11 +12,11 @@ import (
 	"testing"
 	"time"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/pack"
-	"packout/internal/profile"
-	"packout/internal/report"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/report"
 )
 
 // End-to-end test of the P0 pipeline: built-in profile -> materialized fake

@@ -5,7 +5,7 @@ import (
 	"io"
 	"runtime"
 
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // Build-injected values: -ldflags "-X main.commit=<sha> -X main.version=<v>".

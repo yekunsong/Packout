@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/fsx"
 )
 
 // maxPathBytes mirrors the manifest's long-path ceiling (§6.5) and keeps a

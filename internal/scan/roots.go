@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // resolveRoots builds root instances from cfg.Roots, falling back to the

@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/pack"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 const testToken = "sk-ant-api03-RoundTripSecretValue0123456789abcdef"
@@ -38,7 +38,7 @@ func buildPackage(t *testing.T, withSecrets bool) (pkg, homeSrc, pub string) {
 		ManifestVersion: manifest.Version,
 		ScanID:          "01JQ8Z3K7M2V9T4R6W8X0Y2B4C",
 		ScanSegment:     manifest.ScanSegment{SegmentSeq: 0, FirstShard: 1},
-		Tool:            "packout/0.1.0",
+		Tool:            "github.com/yekunsong/Packout/0.1.0",
 		Host: manifest.Host{
 			OS: "linux", Arch: "amd64", CaseSensitivity: "sensitive",
 			PathFoldVersion: manifest.CurrentPathFoldVersion(),
@@ -422,7 +422,7 @@ func TestSymlinkFlattenedWhenUnsupported(t *testing.T) {
 	mdir := filepath.Join(root, "manifest")
 	w, err := manifest.NewWriter(mdir, manifest.Header{
 		ManifestVersion: manifest.Version, ScanID: "01JQ8Z3K7M2V9T4R6W8X0Y2B4C",
-		ScanSegment: manifest.ScanSegment{SegmentSeq: 0, FirstShard: 1}, Tool: "packout/0.1.0",
+		ScanSegment: manifest.ScanSegment{SegmentSeq: 0, FirstShard: 1}, Tool: "github.com/yekunsong/Packout/0.1.0",
 		Host:   manifest.Host{OS: "linux", Arch: "amd64", CaseSensitivity: "sensitive", PathFoldVersion: manifest.CurrentPathFoldVersion()},
 		Inputs: manifest.Inputs{SecretSaltMode: "random", Profiles: []manifest.ProfileRef{{Name: "p", Version: "1.0", SHA256: strings.Repeat("a", 64)}}, Options: &manifest.InputOptions{}},
 		Roots:  []manifest.Root{{Name: "home", Role: "home", Instance: 1, Origin: "cli", Path: cfgDir, Profile: "p"}},

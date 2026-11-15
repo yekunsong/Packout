@@ -16,9 +16,9 @@ import (
 	"sort"
 	"strings"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // Exit codes are the table in docs/design-cli.md (§退出码). They are the

@@ -14,8 +14,8 @@ import (
 
 	"aead.dev/minisign"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
 )
 
 // Signature file. It is deliberately NOT covered by SIG.json's tree and NOT

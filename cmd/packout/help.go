@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"strings"
 
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // The help system is layered on purpose: the top-level help teaches the five

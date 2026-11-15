@@ -7,10 +7,10 @@ import (
 	"sort"
 	"strings"
 
-	"packout/internal/classify"
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/classify"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // produceParts emits one Unit per matching part. It returns true when at least

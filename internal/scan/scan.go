@@ -18,10 +18,10 @@ import (
 	"strings"
 	"sync"
 
-	"packout/internal/classify"
-	"packout/internal/fsx"
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/classify"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // Config drives one scan. Profile and OutDir are required.
@@ -303,7 +303,7 @@ func (s *scanner) header() manifest.Header {
 	}
 	tool := s.cfg.Tool
 	if tool == "" {
-		tool = "packout/0.1.0"
+		tool = "github.com/yekunsong/Packout/0.1.0"
 	}
 	roots := make([]manifest.Root, len(s.roots))
 	for i, r := range s.roots {

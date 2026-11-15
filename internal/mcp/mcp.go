@@ -31,8 +31,8 @@ import (
 	"sort"
 	"strings"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
 )
 
 // Protocol and framing constants.

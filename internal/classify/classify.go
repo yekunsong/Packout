@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/manifest"
 )
 
 // UniquenessScope parameterizes ApplyUniqueness. Mode is the only value the v2

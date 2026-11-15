@@ -3,7 +3,7 @@ package classify
 import (
 	"testing"
 
-	"packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/manifest"
 )
 
 func unit(path, layer string) manifest.Unit {

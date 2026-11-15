@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/manifest"
 )
 
 const memoryEntry = `{

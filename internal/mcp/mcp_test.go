@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"packout/internal/fsx"
-	"packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/fsx"
+	"github.com/yekunsong/Packout/internal/manifest"
 )
 
 var (
@@ -37,7 +37,7 @@ func testHeader(root string) manifest.Header {
 		ScanID:          "01JQ8Z3K7M2V9T4R6W8X0Y2B4C",
 		ScanSegment:     manifest.ScanSegment{SegmentSeq: 0, FirstShard: 1},
 		StartedAt:       testStart,
-		Tool:            "packout/test",
+		Tool:            "github.com/yekunsong/Packout/test",
 		Host: manifest.Host{
 			OS: "linux", OSVersion: "6.8.0", Arch: "amd64",
 			CaseSensitivity: "sensitive",

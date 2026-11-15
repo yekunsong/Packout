@@ -11,8 +11,8 @@ import (
 
 	"filippo.io/age"
 
-	"packout/internal/pack"
-	"packout/internal/restore"
+	"github.com/yekunsong/Packout/internal/pack"
+	"github.com/yekunsong/Packout/internal/restore"
 )
 
 // signedPkg is exportPkg plus a signature and the matching public key.

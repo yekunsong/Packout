@@ -13,8 +13,8 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"packout/internal/manifest"
-	"packout/internal/profile"
+	"github.com/yekunsong/Packout/internal/manifest"
+	"github.com/yekunsong/Packout/internal/profile"
 )
 
 // winEnv builds a materialized fixture with one home root. It is standalone so
