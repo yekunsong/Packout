@@ -1,108 +1,149 @@
 # packout
 
-**packout 是 AI 会话迁移工具，让不同的工作区拥有同一个 AI 会话基线。**
+**AI 会话迁移工具：让不同的工作区拥有同一个 AI 会话基线。**
 
-基线 = 配置（settings、MCP、skills、agents、commands、rules、CLAUDE.md）+ 记忆（memory）+（可选）会话内容。packout 把这套基线扫描成一份能逐条查证的清单，打成可校验、可恢复的包；换机器、开新工作区、多台机器共用一套助手习惯，都从同一个会话基线出发。
+[![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)](#构建)
+[![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20Windows-lightgrey)](#平台)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+packout 扫描本机 AI 编码助手（Claude Code、Codex、Cursor）留下的状态，把可迁移的部分整理成
+**会话基线**——配置、记忆、技能、规则与（可选的）会话内容——打成一份可校验、可加密、可恢复的包，
+并在另一台机器、另一个工作区里还原。换机、重装、多机协作时，助手习惯不必从零重建。
 
 机器绑定项与需要重新登录的凭据不属于基线，只进报告，不会被冒充成可迁移。
 
-## 和"单机会话交接"不是一回事
+> 与 `claude-handoff` 一类“单机会话交接”工具不同，packout 解决的是**跨工作区、跨机器**的基线一致。
 
-`claude-handoff` 一类工具解决的是**同一台机器上**把上下文从一次会话递给下一次。
-packout 解决的是**跨工作区、跨机器**：让不同的工作区拥有同一个 AI 会话基线——这台机器搬走、重装或卖掉之后，助手习惯照样接得上。
+## 特性
 
-## 能做什么
+- **只读扫描**：`scan` / `report` 不删、不改、不移动任何被扫描文件。
+- **分层清单**：每个条目带层（L0–L5）、置信度、信号与出处，结论可逐条查证。
+- **可选择、可裁剪**：preset（`minimal` / `standard` / `full`）、按类别 include/exclude、按时间/项目/数量过滤会话。
+- **可校验**：内容树 SHA-256 + minisign 签名；`verify` 给出 `ok` / `tampered` / `bad-signature` / `unsigned`。
+- **可加密**：RESTORE 凭据可进 age 加密的 `secrets.age`（口令或 recipient）。
+- **可演练**：`drill` 默认干跑，先看计划再落盘；`restore --dry-run` 零写入。
+- **可控落地**：`--map ROLE=PATH` 决定角色写到新机器的哪个根，覆盖前列出 diff。
+- **只读 MCP 面**：`packout mcp` 向 AI 助手暴露六个只读工具。
+- **离线优先**：报告页无外部请求，CSP `default-src 'none'`。
 
-按基线分三段：**建立基线 → 带走并校验 → 恢复与查看**。
+## 工作原理
+
+1. **建立基线**：按内置 profile 扫描 `home` / `repo` / `appdata` / `localappdata` 等根，分类为配置、记忆、
+   会话、技能、agent、command、规则、历史与插件；L0/L1 可再生项只进报告。
+2. **带走并校验**：导出为目录包（`SIG.json` + `manifest/` + `config/` + `reinstall/`），可选签名与加密。
+3. **恢复**：固定顺序执行——验签 → 目标门 → 解密 → 计划 → 写入 → 回读复验；默认目标必须为空，
+   `--in-place` 先列 diff，`--force` 才覆盖（不备份）。
+
+## 构建
+
+需要 Go 1.26+ 与 git。
 
 ```bash
-# 建立基线：一次扫描，得到配置 + 记忆（+ 可选会话）
-packout init                                                             # 交互生成配置、identity、minisign 密钥
-packout doctor --out ./out                                               # 只读自检，有 fail 退出 2
-packout scan   --out ./out                                               # 用配置的根；没配置时回落到 profile 默认值
-packout pack   --out ./pack --sign                                       # scan → export → sign 一条链
-packout scan   --out ./out --root home=$HOME --root repo=/path/to/repo   # 只读扫描（CLI 覆盖配置）
-packout scan   --out ./out --root home=$HOME                      # 默认 standard：配置+记忆，不带会话
-packout scan   --out ./out --root home=$HOME --preset full        # 连会话 transcript 一起带走
-packout scan   --out ./out --root home=$HOME --include agent --exclude history   # 细选
-# 带走并校验：打成可校验的基线包
-packout report --manifest ./out --out ./REPORT.html   # 起一个只绑 127.0.0.1 的报告页
-packout export --src ./out --out ./pack   # 打成可校验的基线包（自动读 out/roots.json）
-packout export --src ./out --out ./pack --with-secrets --recipient age1…  # 凭据进 secrets.age
-packout export --src ./out --out ./pack --with-secrets --passphrase-file ./pw   # 口令取自文件第一行
-packout sign   ./pack --key ~/.config/packout/minisign.key   # 签名（覆盖 SIG.json + manifest/）
-packout verify ./pack   # → ok / tampered / bad-signature / unsigned（默认读 init 写入的 trusted_keys）
-packout verify ./pack --pubkey ./me.pub   # 换机核对来源：显式指定另一渠道拿到的公钥
-# 恢复与查看：把同一个基线带到新的工作区
-packout restore ./pack --into ~/.claude-home   # 默认落到 <into>/home、<into>/repo；未签名默认拒绝
-packout restore ./pack --into ./here --dry-run --allow-unverified   # 只看计划
-# 新机器怎么落地：--map ROLE=PATH 把角色的落地根改到 <into>/PATH（PATH 相对 --into，"." 即 --into 本身）
-# home 直接进 $HOME，repo 进 $HOME/work/proj2；--into 非空会先列 diff，确认后加 --force
-packout restore ./pack --into $HOME --in-place --map home=. --map repo=work/proj2
-packout restore ./pack --into $HOME --in-place --dry-run --map home=. --map repo=work/proj2   # 先看映射后的落地计划，不写盘
-packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdio）
+git clone https://github.com/yekunsong/Packout.git
+cd Packout
+go build -o packout ./cmd/packout
 ```
 
-**新机器怎么落地**：`--map` 解决的是“文件写到哪里”；如果包里带着 `secrets.age`，
-要先解决“能不能解密”，再谈落地。`--recipient` 加密的包只有打包时源机的
-age identity 能解开：经安全渠道（加密 U 盘、受信任的传输，不要放进包或提交仓库）
-把源机 `~/.config/packout/identity.age` 带到新机，恢复时加
-`--identity <源机 identity.age>`，或把它放到新机 `<configDir>/identity.age`（0600）
-后按默认路径解密。`--passphrase-file` 加密的包则在新机用打包时的同一个口令文件
-（`--passphrase-file`）恢复。先加 `--dry-run` 确认解密和计划都通，再复用上面的
-`--map` 命令真写；解不开时“下一步”会按原因给出完整命令。MCP `restore_plan`
-只接 identity，口令包在 MCP 里拿不到计划（CLI 可以 `--passphrase`）。
+Windows、macOS、Linux 均受支持；Windows 的 junction、占位符与短名语义有单独实现与测试。
 
-## 配置
+## 快速开始
 
-`packout init` 把常用根写进 `~/.config/packout/config.json`（Windows：
-`%APPDATA%\packout\config.json`，Unix 0600）。之后 scan/export/restore/mcp
-可以不重复 `--root`/`--identity`/`--pubkey`/`--preset`。**CLI 参数永远优先**；
-配置坏了退出 3 并打印路径。未知键直接报错，避免拼错字段被静默忽略。
-`init` 还会把本机 minisign 公钥写进 `trusted_keys`（0600，已有内容只追加），
-因此本机 `pack --seal` 之后 `verify` 默认就是 `ok`；只有换机核对来源时，才需要
-`--pubkey` 显式指定另一渠道拿到的公钥。
+```bash
+# 1. 初始化：生成配置、age identity 与 minisign 密钥（本机公钥自动进 trusted_keys）
+packout init
 
-## 安全姿态
+# 2. 只读自检与扫描
+packout doctor --out ./out
+packout scan --out ./out                       # 默认 standard：配置 + 记忆，不带会话
+packout scan --out ./out --preset full         # 连会话 transcript 一起带走
+packout scan --out ./out --include agent --exclude history   # 细选
 
-- **扫描只读**。`scan`/`report` 不删、不改、不移动任何被扫描的文件；扫描期唯一的写是 `--out` 与 SQLite 的 `-shm`。
-- **写只有两个入口**：`export` 只写 `--out`，`restore` 只写 `--into`（默认要求空目录，`--in-place` 才覆盖）。
-- **未签名不是 ok**。`verify` 对没有有效签名的包给 `unsigned` 或 `bad-signature`（签名在但没有可信公钥也归后者），退出码 2；`restore` 只放行 `ok`。P0 时代的 `hash-ok, unverified` 只作为历史结论词保留，不再是现役输出。
-- **每条结论都带信号**，没有信号的结论不出现；置信度低的自动落回"保留"。
-- **残留兜底**。没被任何规则命中的东西会被单列出来，而不是消失。代价是：残留项不做内容级凭据检测，报告里会写明。
-- **凭据只露前缀和指纹**，完整值不进清单；分三类——只存引用、可加密带走、只能重登。
-- **报告页无外部请求**，CSP 是 `default-src 'none'`，token 走 URL fragment。
+# 3. 查看报告（只绑 127.0.0.1）
+packout report --manifest ./out --out ./REPORT.html
 
-## P0 不做
+# 4. 打包、签名并校验
+packout pack ./pack --seal
+packout verify ./pack                          # 应得到 ok
 
-删源、GUI、遥测。MCP 只做只读面（见 `docs/design-mcp.md`），不代执行。
+# 5. 先演练，再恢复
+packout drill ./pack                           # 干跑，只列计划
+packout restore ./pack --into ./restore-test   # 恢复进空目录
+```
+
+### 新机器落地
+
+`restore --into` 默认按角色镜像落到 `<into>/home`、`<into>/repo`。要把基线直接装进真实位置，
+用 `--map`（路径相对 `--into`，`.` 即 `--into` 本身）：
+
+```bash
+packout restore ./pack --into $HOME --in-place --dry-run --map home=. --map repo=work/proj2
+packout restore ./pack --into $HOME --in-place --force  --map home=. --map repo=work/proj2
+```
+
+包里带 `secrets.age` 时先解决解密：`--passphrase-file` 包用同一口令文件；
+`--recipient` 包必须经安全渠道把源机 `~/.config/packout/identity.age`（私钥，不进包、不进仓库）
+带过去并用 `--identity` 指定，或放到新机 `<configDir>/identity.age`（0600）后按默认路径解密。
+MCP 的 `restore_plan` 只接受 identity；口令包请在 CLI 操作。
+
+## 命令
+
+| 命令 | 作用 | 写盘 |
+| --- | --- | --- |
+| `init` | 生成配置、age identity、minisign 密钥并登记本机公钥 | 配置目录 |
+| `doctor` | 只读自检；有 fail 退出 2 | `--out` |
+| `scan` | 扫描并写出清单 | `--out` |
+| `report` | 由清单渲染自包含 HTML 报告，可本地起服务 | `--out` |
+| `export` | 由清单导出包 | `--out` |
+| `sign` | 为包签名 | 包目录 |
+| `verify` | 校验包（只读） | 无 |
+| `drill` | 在系统临时目录演练恢复，默认干跑 | 临时目录（`--keep` 才留） |
+| `restore` | 按固定顺序恢复 | `--into` |
+| `mcp` | stdio 只读 MCP 服务 | 无 |
+| `status` | 显示配置、根与最近操作 | 无 |
+| `completion` | 输出 shell 补全脚本 | 无 |
+| `profile` | 列出/探测/测试内置 profile | 无 |
+| `version` | 版本与构建信息 | 无 |
+| `help` | 分层帮助；`help --all` 列全部 | 无 |
+
+退出码：`0` 成功 / `2` 执行或校验失败 / `3` 用法或配置 / `4` 目标非空 / `5` 中断。
+
+## 安全模型
+
+- **写只有两个入口**：`export` 只写 `--out`，`restore` 只写 `--into`（及 `--map` 指向的位置）。
+- **未签名不是 ok**：`unsigned` / `bad-signature` 退出 2，`restore` 默认拒绝，`--allow-unverified` 才放行；
+  `tampered` 与空包无论如何都拒绝。
+- **凭据只露前缀与指纹**；完整值要么留在本机，要么进加密的 `secrets.age`。
+- **TOFU + 指纹核对**：首次见到公钥打印 SHA-256 指纹，可用 `--pubkey` 从另一渠道核对。
+- **覆盖不备份**：`--in-place --force` 会替换既有文件，报告给出覆盖计数，需保留请先自行复制。
+
+详见 [`SECURITY.md`](SECURITY.md) 与 [`docs/threat-model.md`](docs/threat-model.md)。
+
+## 配置与文件
+
+配置位于 `~/.config/packout/config.json`（Windows：`%APPDATA%\packout\config.json`，Unix 0600）。
+`init` 同时维护 `identity.age`、`minisign.key`、`trusted_keys` 与 `state.json`。CLI 参数永远优先于配置；
+配置损坏退出 3 并打印路径。
 
 ## 已知限制
 
-- 清单在内存里收集后统一排序，10 万文件约 140 MiB 峰值、11 秒；20 万文件预计 30–50 秒。
-- sqlite 只按文件头与 `-wal` 判断，不解析库内容。
-- `--root` 指向的 keychain / Windows 凭据管理器 / 注册表条目一律标 `probe_unavailable`。
-- 硬链接、ADS、ACL/属主、Windows 保留名未做特判。
-- 报告里的凭据只到前缀与指纹，无法确认"是不是这一条"的末位。
-- `secret_ref` 只写在配置占位符里，不写进清单；因此不持密钥时无法校验引用有效性。
-- 未签名的包 `verify` 退出码是 **2**（`unsigned`）。P0 时代的 `hash-ok, unverified` 不再是终态。
-- `--passphrase-file` 只读第一行；口令含换行只能写到第一行里。
-- `pack` 失败时会保留已完成的扫描/包并在 stderr 给出路径，方便从中间步骤重试。
-- MCP 的 `restore_plan` 只接 age identity；口令加密的包在 MCP 里拿不到计划（CLI 可以 `--passphrase`）。
-- 选择默认是 `--preset standard`（配置+记忆，不带会话）；`minimal` 只带配置，`full` 才带会话。`--include/--exclude` 可按条目 id、类别或层细选，被排除的条目在报告里单列原因。
-- `--preset full`（旧 `--with-sessions` 别名）把 transcript / tool-results / subagents 的**原字节**打进包：这类文件在包里是**明文**，只有 ≤ 8 MiB 的条目会做 `secret_ref` 占位符替换，更大的直接流式复制；包可能大出数倍（单文件上限 1 GiB，超出跳过并告警），不随 `--with-secrets` 进 `secrets.age`。
-
-## 平台
-
-Windows 优先，macOS/Linux 跟随。Windows 专属行为（junction、占位符、8.3 短名、回收站语义）有单独实现与测试。
+- 清单在内存中排序：10 万文件约 140 MiB 峰值、约 11 秒。
+- 硬链接、ADS、ACL/属主与 Windows 保留名未特判。
+- `--preset full` 的 transcript 以原字节明文入包，只有 ≤ 8 MiB 的条目做凭据占位符替换；
+  单文件上限 1 GiB，超出告警跳过。
+- `--passphrase-file` 只读第一行。
+- 机器绑定项、keychain/注册表只进报告（`probe_unavailable`）。
+- 不做删源、GUI 与遥测；MCP 只读，不代执行。
 
 ## 开发
 
-测试要在两个平台上各跑一遍（Linux 在远端、Windows 在本机便携 Go）：
-
 ```bash
-scripts/rtest.sh ./...     # 同步到远端 Linux 跑 go vet + go test + Windows 交叉编译
+go vet ./... && go test ./...
 python scripts/check-jsonc.py   # 校验内置 profile
 ```
 
-设计文档在 `docs/`，取舍记录在 `DECISIONS.md`（按编号引用，不删旧条目）。
+`scripts/rtest.sh` 可把测试同步到远端 Linux 执行，并做 Windows 交叉编译检查。
+设计文档在 [`docs/`](docs/)，取舍记录在 [`DECISIONS.md`](DECISIONS.md)。
+
+## 许可证
+
+[MIT](LICENSE)
