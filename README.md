@@ -43,6 +43,16 @@ packout restore ./pack --into $HOME --in-place --dry-run --map home=. --map repo
 packout mcp --out ./out --package ./pack --into ./here   # 只读 MCP 面（stdio）
 ```
 
+**新机器怎么落地**：`--map` 解决的是“文件写到哪里”；如果包里带着 `secrets.age`，
+要先解决“能不能解密”，再谈落地。`--recipient` 加密的包只有打包时源机的
+age identity 能解开：经安全渠道（加密 U 盘、受信任的传输，不要放进包或提交仓库）
+把源机 `~/.config/packout/identity.age` 带到新机，恢复时加
+`--identity <源机 identity.age>`，或把它放到新机 `<configDir>/identity.age`（0600）
+后按默认路径解密。`--passphrase-file` 加密的包则在新机用打包时的同一个口令文件
+（`--passphrase-file`）恢复。先加 `--dry-run` 确认解密和计划都通，再复用上面的
+`--map` 命令真写；解不开时“下一步”会按原因给出完整命令。MCP `restore_plan`
+只接 identity，口令包在 MCP 里拿不到计划（CLI 可以 `--passphrase`）。
+
 ## 配置
 
 `packout init` 把常用根写进 `~/.config/packout/config.json`（Windows：

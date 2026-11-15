@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"strings"
 
 	"packout/internal/pack"
@@ -131,11 +132,63 @@ func restoreNext(err error, cfg restoreConfig) string {
 		return "packout restore " + cfg.pkg + " --into " + cfg.into + " --dry-run 先看计划"
 	case errors.Is(err, restore.ErrTampered):
 		return "不要恢复这个包；回到源机重新 packout pack <目录> --seal"
+	case errors.Is(err, restore.ErrDecrypt):
+		return decryptNext(err, cfg.pkg, cfg.into, cfg.identity,
+			cfg.passphrase || cfg.passphraseFile != "", cfg.allowUnverified)
 	case errors.Is(err, restore.ErrUnverified):
 		return "packout verify " + cfg.pkg + " 看结论；确认来源后再加 --allow-unverified 重跑"
 	default:
 		return "packout verify " + cfg.pkg + " 看结论；未初始化先 packout init"
 	}
+}
+
+// decryptNext explains how a secrets.age package is opened on another machine.
+// A recipient-encrypted package only opens with the source machine's identity;
+// a passphrase-encrypted one needs the same passphrase. Both were invisible in
+// the old default next step ("verify; init first"), which is why a real user
+// got stuck after moving to a new machine.
+func decryptNext(err error, pkg, into, identity string, usePassphrase, allowUnverified bool) string {
+	cmd := "packout restore " + pkg + " --into " + into
+	if into == "" {
+		cmd = "packout restore " + pkg + " --into <目标目录>"
+	}
+	// Carry the user's own unverified choice forward so the suggested command
+	// does not bounce straight back to the signature gate. It is not an
+	// endorsement: the parenthetical still says to check provenance first.
+	if allowUnverified {
+		cmd += " --allow-unverified"
+	}
+	if usePassphrase {
+		return cmd + " --passphrase-file <口令文件>\n" +
+			"（核对口令：--passphrase 输入或 --passphrase-file 第一行须与打包时一致；" +
+			"仍失败就回源机重新 packout pack <目录> --seal --passphrase-file ./pw）"
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		idPath := identity
+		if idPath == "" {
+			if p, derr := defaultIdentityPath(); derr == nil {
+				idPath = p
+			}
+		}
+		if idPath == "" {
+			idPath = "<configDir>/identity.age"
+		}
+		note := "这个包的 secrets.age 用 recipient 加密，只有打包时源机的 age identity 能解开：" +
+			"经安全渠道（如加密 U 盘或受信任的传输）把源机 identity.age 带到新机，" +
+			"加 --identity <源机 identity.age>，或放到 " + idPath + "（0600）后去掉 --identity"
+		if allowUnverified {
+			note += "；--allow-unverified 只沿用本次选择，来源没核对过就先 packout verify 确认"
+		}
+		return cmd + " --identity <源机 identity.age>\n" +
+			"（" + note + "；identity.age 是私钥，别放进包、别提交仓库；" +
+			"若打包时用的是口令，改用 --passphrase / --passphrase-file <口令文件>）"
+	}
+	detail := "核对 --identity 是否指向打包时源机的 identity.age，或 --passphrase-file 的口令是否与打包时一致；" +
+		"identity.age 是私钥，只经安全渠道带到新机；仍失败就回源机重新 packout pack <目录> --seal"
+	if allowUnverified {
+		detail += "；--allow-unverified 只沿用本次选择，来源没核对过就先 packout verify 确认"
+	}
+	return cmd + "\n（" + detail + "）"
 }
 
 func restoreExit(err error) int {

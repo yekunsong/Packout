@@ -147,6 +147,8 @@ func runInit(ctx context.Context, cfg initConfig, stdout, stderr io.Writer) int 
 
 	res.Next = []string{
 		"packout pack <目录> --seal     # 导出并签名",
+		"packout pack <目录> --seal --passphrase-file ./pw   # 跨机器推荐：口令加密 secrets.age，新机用同一口令文件 --passphrase-file 恢复",
+		"packout pack <目录> --seal --recipient <age1…>      # recipient 加密：须经安全渠道把源机 identity.age 带到新机，restore 时 --identity",
 		"packout verify <包目录>        # 应得到 ok",
 		"packout sign <包目录>          # 只对已导出、未签名的包",
 		"packout restore <包目录> --into ./restore-test --dry-run",

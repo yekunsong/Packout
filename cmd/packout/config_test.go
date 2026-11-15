@@ -627,3 +627,48 @@ func quote(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+// TestInitNextNamesBothSecretsModes keeps the next-step list honest: a user
+// sealing credentials must see the passphrase path (recommended across
+// machines) and the recipient path with its identity-carrying caveat.
+func TestInitNextNamesBothSecretsModes(t *testing.T) {
+	isolateConfig(t)
+	home := filepath.Join(t.TempDir(), "home")
+	if err := os.Mkdir(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	chdirProject(t)
+	old := initStdin
+	initStdin = strings.NewReader("")
+	defer func() { initStdin = old }()
+
+	code, stdout, stderr := run(t, "init", "--yes", "--json")
+	if code != exitOK {
+		t.Fatalf("init: code=%d stderr=%q", code, stderr)
+	}
+	var sum initSummary
+	if err := json.Unmarshal([]byte(stdout), &sum); err != nil {
+		t.Fatalf("init JSON: %v (%q)", err, stdout)
+	}
+	next := strings.Join(sum.Next, "\n")
+	for _, want := range []string{
+		"--seal --passphrase-file ./pw",
+		"跨机器推荐",
+		"--seal --recipient",
+		"带到新机",
+		"identity.age",
+		"--identity",
+	} {
+		if !strings.Contains(next, want) {
+			t.Errorf("init Next lacks %q:\n%s", want, next)
+		}
+	}
+	// Never suggest carrying the private key inside the package.
+	for _, line := range sum.Next {
+		if strings.Contains(line, "--recipient") && !strings.Contains(line, "安全渠道") {
+			t.Errorf("recipient line lacks the safe-channel caveat: %q", line)
+		}
+	}
+}

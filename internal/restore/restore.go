@@ -480,7 +480,9 @@ func loadSecrets(pkg string, crypt pack.CryptOptions, rep *Report) (*secretIndex
 	plain, err := pack.DecryptSecrets(pkg, crypt)
 	if err != nil {
 		rep.Problems = append(rep.Problems, Problem{Code: "rst_decrypt_failed", Detail: err.Error()})
-		return idx, fmt.Errorf("%w: %v", ErrDecrypt, err)
+		// Keep the cause wrapped so the CLI can tell a missing identity file
+		// (fs.ErrNotExist) from a wrong identity/passphrase.
+		return idx, fmt.Errorf("%w: %w", ErrDecrypt, err)
 	}
 	var doc struct {
 		Format  string `json:"format"`

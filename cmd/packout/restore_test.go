@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"filippo.io/age"
+
 	"packout/internal/pack"
 	"packout/internal/restore"
 )
@@ -378,5 +380,139 @@ func TestRestoreJSONOverwritten(t *testing.T) {
 	}
 	if len(rep.Restored) == 0 {
 		t.Fatalf("restored segment disappeared: %q", stdout)
+	}
+}
+
+// decryptPkg exports a secrets-bearing package encrypted to a source age key.
+// The returned identity is never written anywhere: that is the new-machine
+// situation this task is about.
+func decryptPkg(t *testing.T, extra ...string) string {
+	t.Helper()
+	src := scanFixture(t)
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatalf("GenerateX25519Identity: %v", err)
+	}
+	pkg := filepath.Join(t.TempDir(), "pkg")
+	args := append([]string{"export", "--src", src, "--out", pkg,
+		"--with-secrets", "--recipient", id.Recipient().String(), "--quiet"}, extra...)
+	if code, _, stderr := run(t, args...); code != exitOK {
+		t.Fatalf("export: code=%d stderr=%q", code, stderr)
+	}
+	return pkg
+}
+
+// TestRestoreDecryptMissingIdentityNextStep is the real cross-machine failure:
+// a recipient-encrypted package lands on a machine with no source identity.
+// The next step must name the source identity, the config-dir copy, and the
+// passphrase alternative instead of pointing at verify/init.
+func TestRestoreDecryptMissingIdentityNextStep(t *testing.T) {
+	pkg := decryptPkg(t)
+	// A brand-new machine: empty HOME and config dir, so the default identity
+	// path does not exist.
+	home := isolateHome(t)
+	into := filepath.Join(t.TempDir(), "into")
+
+	code, _, stderr := run(t, "restore", pkg, "--into", into, "--allow-unverified")
+	if code != exitPartial {
+		t.Fatalf("restore without identity: code=%d stderr=%q", code, stderr)
+	}
+	for _, want := range []string{
+		"rst_decrypt_failed",
+		"下一步：",
+		"--identity <源机 identity.age>",
+		"--passphrase",
+		"--passphrase-file <口令文件>",
+		"--allow-unverified",
+		"经安全渠道",
+		filepath.Join(home, "packout", "identity.age"),
+	} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("missing-identity hint lacks %q: %q", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "未初始化先 packout init") {
+		t.Errorf("hint still points at init: %q", stderr)
+	}
+	if strings.Contains(stderr, "放进包") && !strings.Contains(stderr, "别放进包") {
+		t.Errorf("hint suggests putting the identity in the package: %q", stderr)
+	}
+
+	// drill is a dry run with no --into; it shares the same guidance.
+	code, _, stderr = run(t, "drill", pkg, "--allow-unverified")
+	if code != exitPartial {
+		t.Fatalf("drill without identity: code=%d stderr=%q", code, stderr)
+	}
+	for _, want := range []string{"--identity <源机 identity.age>", "--into <目标目录>", "经安全渠道"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("drill hint lacks %q: %q", want, stderr)
+		}
+	}
+}
+
+// TestRestoreDecryptWrongIdentityNextStep covers the other branch: an identity
+// exists but does not match the recipient, so the hint must say to check the
+// identity/passphrase rather than the "missing file" instructions.
+func TestRestoreDecryptWrongIdentityNextStep(t *testing.T) {
+	pkg := decryptPkg(t)
+	isolateHome(t)
+	// pack.DecryptSecrets reads the implicit identity from its own default
+	// path (~/.config/packout/identity.age), which is where a user would have
+	// copied it; write a mismatched key there.
+	idPath, err := pack.DefaultIdentityPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(idPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	wrong, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, idPath, []byte(wrong.String()+"\n"))
+
+	into := filepath.Join(t.TempDir(), "into")
+	code, _, stderr := run(t, "restore", pkg, "--into", into, "--allow-unverified")
+	if code != exitPartial {
+		t.Fatalf("restore with wrong identity: code=%d stderr=%q", code, stderr)
+	}
+	for _, want := range []string{"rst_decrypt_failed", "核对 --identity", "--passphrase-file", "经安全渠道"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("wrong-identity hint lacks %q: %q", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "--identity <源机 identity.age>") {
+		t.Errorf("wrong-identity hint pretends the file is missing: %q", stderr)
+	}
+}
+
+// TestRestoreDecryptWrongPassphraseNextStep checks the passphrase branch.
+func TestRestoreDecryptWrongPassphraseNextStep(t *testing.T) {
+	src := scanFixture(t)
+	dir := t.TempDir()
+	right := filepath.Join(dir, "right")
+	mustWrite(t, right, []byte("right-pass\n"))
+	wrong := filepath.Join(dir, "wrong")
+	mustWrite(t, wrong, []byte("wrong-pass\n"))
+	pkg := filepath.Join(dir, "pkg")
+	if code, _, stderr := run(t, "export", "--src", src, "--out", pkg,
+		"--with-secrets", "--passphrase-file", right, "--quiet"); code != exitOK {
+		t.Fatalf("export: code=%d stderr=%q", code, stderr)
+	}
+
+	into := filepath.Join(dir, "into")
+	code, _, stderr := run(t, "restore", pkg, "--into", into,
+		"--passphrase-file", wrong, "--allow-unverified")
+	if code != exitPartial {
+		t.Fatalf("restore with wrong passphrase: code=%d stderr=%q", code, stderr)
+	}
+	for _, want := range []string{"rst_decrypt_failed", "核对口令", "--passphrase-file <口令文件>"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("wrong-passphrase hint lacks %q: %q", want, stderr)
+		}
+	}
+	if strings.Contains(stderr, "identity.age 是私钥") {
+		t.Errorf("passphrase hint talks about identity files: %q", stderr)
 	}
 }

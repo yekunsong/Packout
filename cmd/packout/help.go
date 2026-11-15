@@ -287,6 +287,9 @@ const restoreHelp = `用法: packout restore PKG_DIR --into DIR [--map ROLE=PATH
 默认目标必须不存在或为空；--in-place 才覆盖非空目标，并列 diff，diff 非空时必须 --force。
 config/ 中的 «secret:…» 占位符会现场替换为明文；找不到引用记 missing_secret 并继续。
 失败即停，已写文件保留、不回滚；L5 永不写盘，只进 needs_relogin。
+secrets.age 是跨机恢复的前置门：recipient 加密的包只有源机 identity.age 能解开
+（--identity，或经安全渠道放到 <configDir>/identity.age）；口令包用 --passphrase/
+--passphrase-file 给同一口令。解不开时“下一步”会按原因给出完整命令。
 
 落地语义：config/<角色>/… 默认落到 <into>/<角色>/…（home → <into>/home，
 repo → <into>/repo）；结束时打印“落地：…”摘要。<into> 是状态根，不是包副本。
@@ -302,9 +305,11 @@ repo → <into>/repo）；结束时打印“落地：…”摘要。<into> 是�
   --dry-run            只跑前四步，零写入
   --allow-unverified   SIG 结论不是 ok 时仍继续（tampered 与 empty 除外；红字提示）
   --pubkey FILE        公钥文件（默认读 <configDir>/trusted_keys）
-  --identity FILE      age identity（默认 ~/.config/packout/identity.age）
-  --passphrase         从终端读口令（与 --identity 二选一）
-  --passphrase-file FILE  从文件第一行读口令（与 --passphrase、--identity 互斥）
+  --identity FILE      age identity（默认 ~/.config/packout/identity.age）；
+                       跨机恢复 recipient 包时指向源机的 identity.age
+  --passphrase         从终端读口令（与 --identity 二选一）；用于口令加密的包
+  --passphrase-file FILE  从文件第一行读口令（与 --passphrase、--identity 互斥）；
+                       跨机恢复口令包时用打包时的同一个口令文件
   --json               stdout 输出可解析的 JSON 报告
   --quiet              只输出错误
 

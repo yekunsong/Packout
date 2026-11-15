@@ -24,6 +24,14 @@ restore 是整个项目第一次往磁盘写用户数据。它比 export 危险�
 - `--dry-run` 等价于只跑 1–4 步。
 - 目标在源目录之内（原地重扫）要检测并提示。
 
+## secrets 跨机解密
+
+`secrets.age` 用 `--recipient` 加密时只有打包时源机的 age identity 能解开：换机器恢复必须
+`--identity <源机 identity.age>`，或经安全渠道把该文件（私钥）放到 `<configDir>/identity.age`
+（0600）后按默认路径解密；用 `--passphrase-file` 加密的包在新机器上用同一个口令恢复。
+identity 缺失导致的 `rst_decrypt_failed` 必须在“下一步”给出上述可执行命令，不能只指向
+`verify`/`init`；MCP `restore_plan` 只接受 identity，口令包在 MCP 里拿不到计划。
+
 ## 落地与 --map
 
 默认落地是角色镜像：`config/<role>/…` → `<into>/<role>/…`（`home` → `<into>/home`，

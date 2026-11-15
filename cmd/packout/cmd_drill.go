@@ -195,7 +195,7 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 	}
 	if err != nil {
 		r.value(sum)
-		return r.fail(restoreExit(err), "%s", withNext(err.Error(), drillNext(err, cfg.pkg)))
+		return r.fail(restoreExit(err), "%s", withNext(err.Error(), drillNext(err, cfg)))
 	}
 
 	if cfg.write {
@@ -262,13 +262,18 @@ func runDrill(ctx context.Context, cfg drillConfig, stdout, stderr io.Writer) in
 
 // drillNext names the real next step for a gate failure instead of blaming the
 // path or calling every non-ok verdict tampering.
-func drillNext(err error, pkg string) string {
+func drillNext(err error, cfg drillConfig) string {
 	switch {
 	case errors.Is(err, restore.ErrTampered):
 		return "不要恢复这个包；回到源机重新 packout pack <目录> --seal"
+	case errors.Is(err, restore.ErrDecrypt):
+		// A drill is a dry run, so its suggested command still needs --into;
+		// decryptNext fills in <目标目录> when none is given.
+		return decryptNext(err, cfg.pkg, "", cfg.identity,
+			cfg.passphrase || cfg.passphraseFile != "", cfg.allowUnverified)
 	case errors.Is(err, restore.ErrUnverified):
-		return "packout verify " + pkg + " 看实际结论；确认来源后再加 --allow-unverified"
+		return "packout verify " + cfg.pkg + " 看实际结论；确认来源后再加 --allow-unverified"
 	default:
-		return "packout verify " + pkg + " 看实际结论"
+		return "packout verify " + cfg.pkg + " 看实际结论"
 	}
 }
